@@ -118,6 +118,7 @@ If the project direction changes, this file must be updated to reflect the new a
 ## Fetching Rules
 
 - Use a separate worker process for fetching and ingest.
+- Provide a worker backfill target for RuTracker forum feeds that takes a feed id, crawls the forum pagination, and inserts missing topics through normal item dedupe.
 - Start with an hourly fetch interval per feed.
 - Use adaptive scheduling:
   - increase interval when feeds are inactive
