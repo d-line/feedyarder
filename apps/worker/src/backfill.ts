@@ -2,6 +2,10 @@ import { getConfig } from "./config.js";
 import { getPool } from "./db/pool.js";
 import { fetchRutrackerBackfillPage } from "./backfill/rutracker.js";
 import {
+  collectYouTubeBackfillItems,
+  resolveYouTubeBackfillUrls
+} from "./backfill/youtube.js";
+import {
   getFeedBackfillTarget,
   insertItemsWithResults,
   type FeedBackfillTarget
@@ -29,20 +33,64 @@ async function run(): Promise<void> {
       throw new Error(`Feed ${feedId} was not found.`);
     }
 
-    const startUrl = resolveBackfillStartUrl(feed);
-    const result = await crawlRutrackerForum(
-      pool,
-      feed.id,
-      startUrl,
-      config.FETCH_TOTAL_TIMEOUT_MS
-    );
+    const result = isYouTubeFeed(feed)
+      ? await backfillYouTubeFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
+      : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
 
     console.log(
-      `Backfill complete for ${feed.title ?? feed.feedUrl}: pages=${result.pageCount} discovered=${result.discoveredCount} inserted=${result.insertedCount}`
+      `Backfill complete for ${feed.title ?? feed.feedUrl}: source=${result.source} pages=${result.pageCount} discovered=${result.discoveredCount} inserted=${result.insertedCount}`
     );
   } finally {
     await pool.end();
   }
+}
+
+async function backfillYouTubeFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const urls = resolveYouTubeBackfillUrls(feed);
+  let discoveredCount = 0;
+  let insertedCount = 0;
+
+  for (const url of urls) {
+    console.log(`Backfill crawling ${url.tab} ${url.url}`);
+
+    const items = await collectYouTubeBackfillItems(url.url, url.tab, feed.id, timeoutMs);
+    console.log(`Backfill yt-dlp parsed: tab=${url.tab} items=${items.length}`);
+
+    discoveredCount += items.length;
+
+    for (const result of await insertItemsWithResults(pool, feed.id, items)) {
+      console.log(formatInsertDebugLine(result.item, result.inserted));
+
+      if (result.inserted) {
+        insertedCount += 1;
+      }
+    }
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount: urls.length,
+    source: "youtube"
+  };
+}
+
+async function backfillRutrackerFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const startUrl = resolveRutrackerBackfillStartUrl(feed);
+  const result = await crawlRutrackerForum(pool, feed.id, startUrl, timeoutMs);
+
+  return {
+    ...result,
+    source: "rutracker"
+  };
 }
 
 async function crawlRutrackerForum(
@@ -94,12 +142,12 @@ async function crawlRutrackerForum(
 }
 
 function formatInsertDebugLine(item: NormalizedItem, inserted: boolean): string {
-  const topicId = readRutrackerTopicId(item);
+  const sourceId = readSourceId(item);
   const status = inserted ? "inserted" : "skipped_duplicate";
 
   return [
     `Backfill item ${status}`,
-    `topic=${topicId ?? "unknown"}`,
+    `sourceId=${sourceId ?? "unknown"}`,
     `publishedAt=${item.publishedAt ?? "null"}`,
     `title=${item.title ?? "null"}`,
     `url=${item.url ?? "null"}`,
@@ -107,7 +155,7 @@ function formatInsertDebugLine(item: NormalizedItem, inserted: boolean): string 
   ].join(" | ");
 }
 
-function readRutrackerTopicId(item: NormalizedItem): string | null {
+function readSourceId(item: NormalizedItem): string | null {
   const rutrackerData = item.rawExtensionData.rutracker;
 
   if (
@@ -117,6 +165,17 @@ function readRutrackerTopicId(item: NormalizedItem): string | null {
     typeof rutrackerData.topicId === "string"
   ) {
     return rutrackerData.topicId;
+  }
+
+  const youtubeData = item.rawExtensionData.youtube;
+
+  if (
+    youtubeData &&
+    typeof youtubeData === "object" &&
+    "videoId" in youtubeData &&
+    typeof youtubeData.videoId === "string"
+  ) {
+    return youtubeData.videoId;
   }
 
   return item.guid?.replace(/^rutracker-topic:/, "") ?? null;
@@ -144,7 +203,7 @@ function resolveNextForumPageUrl(
   return currentUrl.toString();
 }
 
-function resolveBackfillStartUrl(feed: FeedBackfillTarget): string {
+function resolveRutrackerBackfillStartUrl(feed: FeedBackfillTarget): string {
   for (const candidate of [feed.siteUrl, feed.feedUrl]) {
     if (!candidate) {
       continue;
@@ -166,6 +225,21 @@ function resolveBackfillStartUrl(feed: FeedBackfillTarget): string {
   throw new Error(
     `Feed ${feed.id} does not point to a RuTracker forum page. Expected a URL containing forum id f=... or /f/<id>.`
   );
+}
+
+function isYouTubeFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+
+    try {
+      const url = new URL(candidate);
+      return url.hostname.includes("youtube.com") || url.hostname === "youtu.be";
+    } catch {
+      return false;
+    }
+  });
 }
 
 function extractForumId(url: URL): string | null {

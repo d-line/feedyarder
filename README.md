@@ -109,3 +109,21 @@ Run both:
 ```bash
 npm run test:all
 ```
+
+For age-restricted YouTube videos, provide a Netscape-format cookies file:
+
+```bash
+YT_DLP_COOKIES_FILE=/absolute/path/to/cookies.txt npm run backfill -- <feed-id>
+```
+
+For YouTube verification flows that need a JavaScript runtime, enable one for yt-dlp:
+
+```bash
+YT_DLP_JS_RUNTIME=node npm run backfill -- <feed-id>
+```
+
+If yt-dlp needs external JavaScript components, allow them explicitly:
+
+```bash
+YT_DLP_REMOTE_COMPONENTS=ejs:npm npm run backfill -- <feed-id>
+```
