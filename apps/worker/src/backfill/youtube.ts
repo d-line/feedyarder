@@ -56,7 +56,7 @@ export async function collectYouTubeBackfillItems(
   feedId: string,
   timeoutMs: number
 ): Promise<NormalizedItem[]> {
-  const videos = await runYtDlp(url, timeoutMs);
+  const videos = await runYtDlp(url, resolveYtDlpTimeoutMs(timeoutMs));
   const items = new Map<string, NormalizedItem>();
   let skippedCount = 0;
 
@@ -119,10 +119,10 @@ export function normalizeYtDlpVideo(
   };
 }
 
-async function runYtDlp(url: string, timeoutMs: number): Promise<YtDlpVideo[]> {
+async function runYtDlp(url: string, timeoutMs: number | null): Promise<YtDlpVideo[]> {
   const args = buildYtDlpArgs(url);
   console.log(`Backfill yt-dlp command: ${ytDlpBinary} ${redactYtDlpArgs(args).join(" ")}`);
-  console.log(`Backfill yt-dlp starting: url=${url} timeoutMs=${timeoutMs}`);
+  console.log(`Backfill yt-dlp starting: url=${url} timeoutMs=${timeoutMs ?? "none"}`);
 
   const child = spawn(
     ytDlpBinary,
@@ -133,9 +133,15 @@ async function runYtDlp(url: string, timeoutMs: number): Promise<YtDlpVideo[]> {
   );
   const stderrChunks: string[] = [];
   const videos: YtDlpVideo[] = [];
-  const timeout = setTimeout(() => {
-    child.kill("SIGTERM");
-  }, timeoutMs);
+  let timedOut = false;
+  const timeout =
+    timeoutMs === null
+      ? null
+      : setTimeout(() => {
+          timedOut = true;
+          console.log(`Backfill yt-dlp timeout reached: url=${url} timeoutMs=${timeoutMs}`);
+          child.kill("SIGTERM");
+        }, timeoutMs);
 
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => {
@@ -165,15 +171,29 @@ async function runYtDlp(url: string, timeoutMs: number): Promise<YtDlpVideo[]> {
     }
   });
 
-  const exitCode = await new Promise<number | null>((resolve, reject) => {
+  const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+    (resolve, reject) => {
     child.on("error", reject);
-    child.on("close", resolve);
-  });
+      child.on("close", (code, signal) => {
+        resolve({ code, signal });
+      });
+    }
+  );
 
-  clearTimeout(timeout);
-  console.log(`Backfill yt-dlp finished: url=${url} exitCode=${exitCode} parsed=${videos.length}`);
+  if (timeout) {
+    clearTimeout(timeout);
+  }
+  console.log(
+    `Backfill yt-dlp finished: url=${url} exitCode=${exit.code} signal=${exit.signal ?? "none"} parsed=${videos.length}`
+  );
 
-  if (exitCode !== 0) {
+  if (timedOut) {
+    throw new Error(
+      `yt-dlp timed out for ${url} after ${timeoutMs}ms after parsing ${videos.length} items. Increase YT_DLP_TIMEOUT_MS if this channel is large.`
+    );
+  }
+
+  if (exit.code !== 0) {
     const stderr = stderrChunks.join("").trim();
 
     if (isIgnorableSubscriberOnlyFailure(stderr)) {
@@ -182,11 +202,27 @@ async function runYtDlp(url: string, timeoutMs: number): Promise<YtDlpVideo[]> {
     }
 
     throw new Error(
-      `yt-dlp failed for ${url} with exit code ${exitCode}${stderr ? `: ${stderr}` : "."}`
+      `yt-dlp failed for ${url} with exit code ${exit.code} signal=${exit.signal ?? "none"}${stderr ? `: ${stderr}` : "."}`
     );
   }
 
   return videos;
+}
+
+function resolveYtDlpTimeoutMs(_fallbackTimeoutMs: number): number | null {
+  const configured = process.env.YT_DLP_TIMEOUT_MS?.trim();
+
+  if (configured) {
+    const parsed = Number(configured);
+
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error(`YT_DLP_TIMEOUT_MS must be a positive number of milliseconds, got: ${configured}`);
+    }
+
+    return parsed;
+  }
+
+  return null;
 }
 
 function formatYtDlpParsedLine(video: YtDlpVideo, count: number): string {
