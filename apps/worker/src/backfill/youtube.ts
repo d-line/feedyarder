@@ -58,14 +58,21 @@ export async function collectYouTubeBackfillItems(
 ): Promise<NormalizedItem[]> {
   const videos = await runYtDlp(url, timeoutMs);
   const items = new Map<string, NormalizedItem>();
+  let skippedCount = 0;
 
   for (const video of videos) {
     const item = normalizeYtDlpVideo(video, tab, feedId);
 
     if (item) {
       items.set(item.guid ?? item.dedupeKey, item);
+    } else {
+      skippedCount += 1;
     }
   }
+
+  console.log(
+    `Backfill YouTube normalized: tab=${tab} parsed=${videos.length} normalized=${items.size} skipped=${skippedCount}`
+  );
 
   return Array.from(items.values());
 }
@@ -115,6 +122,7 @@ export function normalizeYtDlpVideo(
 async function runYtDlp(url: string, timeoutMs: number): Promise<YtDlpVideo[]> {
   const args = buildYtDlpArgs(url);
   console.log(`Backfill yt-dlp command: ${ytDlpBinary} ${redactYtDlpArgs(args).join(" ")}`);
+  console.log(`Backfill yt-dlp starting: url=${url} timeoutMs=${timeoutMs}`);
 
   const child = spawn(
     ytDlpBinary,
@@ -132,6 +140,7 @@ async function runYtDlp(url: string, timeoutMs: number): Promise<YtDlpVideo[]> {
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => {
     stderrChunks.push(chunk);
+    logYtDlpStderr(chunk);
   });
 
   const stdout = createInterface({
@@ -147,9 +156,12 @@ async function runYtDlp(url: string, timeoutMs: number): Promise<YtDlpVideo[]> {
     }
 
     try {
-      videos.push(JSON.parse(trimmed) as YtDlpVideo);
+      const video = JSON.parse(trimmed) as YtDlpVideo;
+      videos.push(video);
+      console.log(formatYtDlpParsedLine(video, videos.length));
     } catch {
       stderrChunks.push(`Failed to parse yt-dlp JSON line: ${trimmed.slice(0, 200)}`);
+      console.log(`Backfill yt-dlp json_parse_error: ${trimmed.slice(0, 200)}`);
     }
   });
 
@@ -159,6 +171,7 @@ async function runYtDlp(url: string, timeoutMs: number): Promise<YtDlpVideo[]> {
   });
 
   clearTimeout(timeout);
+  console.log(`Backfill yt-dlp finished: url=${url} exitCode=${exitCode} parsed=${videos.length}`);
 
   if (exitCode !== 0) {
     const stderr = stderrChunks.join("").trim();
@@ -174,6 +187,29 @@ async function runYtDlp(url: string, timeoutMs: number): Promise<YtDlpVideo[]> {
   }
 
   return videos;
+}
+
+function formatYtDlpParsedLine(video: YtDlpVideo, count: number): string {
+  return [
+    `Backfill yt-dlp item parsed #${count}`,
+    `sourceId=${video.id ?? "unknown"}`,
+    `publishedAt=${parsePublishedAt(video) ?? "null"}`,
+    `uploadDate=${video.upload_date ?? "null"}`,
+    `timestamp=${video.timestamp ?? "null"}`,
+    `releaseTimestamp=${video.release_timestamp ?? "null"}`,
+    `availability=${video.availability ?? "unknown"}`,
+    `title=${video.title ?? "null"}`
+  ].join(" | ");
+}
+
+function logYtDlpStderr(chunk: string): void {
+  for (const line of chunk.split(/\r?\n/)) {
+    const trimmed = line.trim();
+
+    if (trimmed) {
+      console.log(`Backfill yt-dlp stderr: ${trimmed}`);
+    }
+  }
 }
 
 export function buildYtDlpArgs(url: string): string[] {
