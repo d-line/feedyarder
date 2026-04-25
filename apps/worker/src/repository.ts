@@ -17,6 +17,25 @@ interface DueFeedRow {
   last_modified: string | null;
 }
 
+export interface FeedBackfillTarget {
+  id: string;
+  feedUrl: string;
+  siteUrl: string | null;
+  title: string | null;
+}
+
+interface FeedBackfillTargetRow {
+  id: string;
+  feed_url: string;
+  site_url: string | null;
+  title: string | null;
+}
+
+export interface InsertItemResult {
+  inserted: boolean;
+  item: NormalizedItem;
+}
+
 export async function listDueFeeds(pool: Pool, limit: number): Promise<DueFeed[]> {
   const result = await pool.query<DueFeedRow>(
     `
@@ -46,6 +65,32 @@ export async function listDueFeeds(pool: Pool, limit: number): Promise<DueFeed[]
     etag: row.etag,
     lastModified: row.last_modified
   }));
+}
+
+export async function getFeedBackfillTarget(
+  pool: Pool,
+  feedId: string
+): Promise<FeedBackfillTarget | null> {
+  const result = await pool.query<FeedBackfillTargetRow>(
+    `
+      select id, feed_url, site_url, title
+      from feeds
+      where id = $1
+    `,
+    [feedId]
+  );
+  const row = result.rows[0];
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    feedUrl: row.feed_url,
+    id: row.id,
+    siteUrl: row.site_url,
+    title: row.title
+  };
 }
 
 export async function recordFetchOutcome(
@@ -152,12 +197,21 @@ export async function recordNotificationBatch(
   );
 }
 
-async function insertItems(
+export async function insertItems(
   pool: Pool,
   feedId: string,
   items: NormalizedItem[]
 ): Promise<number> {
-  let insertedCount = 0;
+  const results = await insertItemsWithResults(pool, feedId, items);
+  return results.filter((result) => result.inserted).length;
+}
+
+export async function insertItemsWithResults(
+  pool: Pool,
+  feedId: string,
+  items: NormalizedItem[]
+): Promise<InsertItemResult[]> {
+  const results: InsertItemResult[] = [];
 
   for (const item of items) {
     const result = await pool.query(
@@ -191,8 +245,11 @@ async function insertItems(
       ]
     );
 
-    insertedCount += result.rowCount ?? 0;
+    results.push({
+      inserted: (result.rowCount ?? 0) > 0,
+      item
+    });
   }
 
-  return insertedCount;
+  return results;
 }

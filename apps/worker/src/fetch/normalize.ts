@@ -174,7 +174,7 @@ function normalizeAtomEntry(
   };
 }
 
-function buildDedupeKey(
+export function buildDedupeKey(
   feedId: string,
   guid: string | null,
   url: string | null,

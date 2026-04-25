@@ -11,6 +11,7 @@
     "npm": ">=11.0.0"
   },
   "scripts": {
+    "backfill": "npm run backfill -w @feedyarder/worker --",
     "build": "npm run build --workspaces",
     "check": "npm run typecheck --workspaces && npm run generate:api:check -w @feedyarder/contracts",
     "db:migrate:down": "npm run migrate:down -w @feedyarder/db",
