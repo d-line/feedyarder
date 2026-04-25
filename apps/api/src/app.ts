@@ -18,12 +18,17 @@ import { getPool } from "./db/pool.js";
 import {
   createFeed,
   createFolder,
+  listFetchEvents,
   listFeeds,
-  listFolders
+  listFolders,
+  retryFeedNow,
+  updateFeed
 } from "./feed-management/repository.js";
 import {
   createFeedRequestSchema,
-  createFolderRequestSchema
+  createFolderRequestSchema,
+  listFetchEventsQuerySchema,
+  updateFeedRequestSchema
 } from "./feed-management/schemas.js";
 import { listItems, updateItemState } from "./item-management/repository.js";
 import { listItemsQuerySchema, updateItemStateSchema } from "./item-management/schemas.js";
@@ -248,6 +253,69 @@ export function createApp(config: AppConfig) {
           folderId: payload.folderId ?? null,
           siteUrl: payload.siteUrl ?? null,
           title: payload.title ?? null
+        })
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/feeds/:id", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      const { id } = request.params;
+      const payload = updateFeedRequestSchema.parse(request.body);
+      const feed = await updateFeed(pool, id, {
+        folderId: payload.folderId ?? null,
+        isPaused: payload.isPaused ?? null,
+        siteUrl: payload.siteUrl ?? null,
+        title: payload.title ?? null
+      });
+
+      if (!feed) {
+        return sendError(response, 404, "feed_not_found", "Feed was not found.");
+      }
+
+      return response.json(feed);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/feeds/:id/retry", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      const { id } = request.params;
+      const feed = await retryFeedNow(pool, id);
+
+      if (!feed) {
+        return sendError(response, 404, "feed_not_found", "Feed was not found.");
+      }
+
+      return response.json(feed);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/fetch-events", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      const query = listFetchEventsQuerySchema.parse(request.query);
+
+      return response.json(
+        await listFetchEvents(pool, {
+          feedId: query.feedId ?? null,
+          limit: query.limit
         })
       );
     } catch (error) {

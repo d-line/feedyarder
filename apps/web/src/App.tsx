@@ -28,7 +28,22 @@ interface Feed {
   lastSuccessAt: string | null;
   lastErrorAt: string | null;
   lastErrorCategory: string | null;
+  lastErrorMessage: string | null;
   createdAt: string;
+}
+
+interface FetchEvent {
+  id: string;
+  feedId: string;
+  feedTitle: string | null;
+  feedUrl: string;
+  status: string;
+  errorCategory: string | null;
+  errorMessage: string | null;
+  httpStatus: number | null;
+  missingPublishedAtCount: number;
+  fetchedAt: string;
+  durationMs: number | null;
 }
 
 interface Item {
@@ -708,6 +723,7 @@ function ReaderRoute() {
 function AdminRoute() {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [feeds, setFeeds] = useState<Feed[]>([]);
+  const [fetchEvents, setFetchEvents] = useState<FetchEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [folderTitle, setFolderTitle] = useState("");
@@ -727,13 +743,15 @@ function AdminRoute() {
       setIsLoading(true);
       setErrorMessage(null);
 
-      const [foldersResponse, feedsResponse] = await Promise.all([
+      const [foldersResponse, feedsResponse, fetchEventsResponse] = await Promise.all([
         apiRequest<Folder[]>("/folders"),
-        apiRequest<Feed[]>("/feeds")
+        apiRequest<Feed[]>("/feeds"),
+        apiRequest<FetchEvent[]>("/fetch-events?limit=15")
       ]);
 
       setFolders(foldersResponse);
       setFeeds(feedsResponse);
+      setFetchEvents(fetchEventsResponse);
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     } finally {
@@ -792,14 +810,46 @@ function AdminRoute() {
     }
   }
 
+  async function handleToggleFeedPaused(feed: Feed): Promise<void> {
+    try {
+      setErrorMessage(null);
+
+      const updatedFeed = await apiRequest<Feed>(`/feeds/${feed.id}`, {
+        body: JSON.stringify({
+          isPaused: !feed.isPaused
+        }),
+        method: "PATCH"
+      });
+
+      setFeeds((current) => current.map((entry) => (entry.id === updatedFeed.id ? updatedFeed : entry)));
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    }
+  }
+
+  async function handleRetryFeed(feed: Feed): Promise<void> {
+    try {
+      setErrorMessage(null);
+
+      const updatedFeed = await apiRequest<Feed>(`/feeds/${feed.id}/retry`, {
+        method: "POST"
+      });
+
+      setFeeds((current) => current.map((entry) => (entry.id === updatedFeed.id ? updatedFeed : entry)));
+      await loadAdminState();
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    }
+  }
+
   return (
     <section className="screen-content">
       <header className="section-header">
         <p className="section-kicker">$ admin</p>
         <h1>feed health and import controls</h1>
         <p className="section-copy">
-          This page now talks to the real API for folders and feeds. Edit/delete,
-          OPML, and retry controls come next.
+          Feed creation is live, and operator controls now cover pause/resume,
+          retry-now, and recent fetch history.
         </p>
       </header>
 
@@ -901,6 +951,7 @@ function AdminRoute() {
           <span>status</span>
           <span>interval</span>
           <span>errors</span>
+          <span>actions</span>
         </div>
 
         {isLoading ? (
@@ -914,13 +965,56 @@ function AdminRoute() {
         ) : (
           feeds.map((feed) => (
             <div key={feed.id} className="table-row">
-              <span>{feed.title ?? feed.feedUrl}</span>
+              <span>
+                <strong>{feed.title ?? feed.feedUrl}</strong>
+                <br />
+                <span className="table-subline">{feed.lastErrorMessage ?? feed.feedUrl}</span>
+              </span>
               <span>{findFolderTitle(folders, feed.folderId)}</span>
-              <span className={`status-pill status-${normalizeStatus(feed.status)}`}>
-                {feed.status}
+              <span className={`status-pill status-${getFeedTone(feed)}`}>
+                {feed.isPaused ? "paused" : feed.status}
               </span>
               <span>{feed.fetchIntervalMinutes}m</span>
               <span>{feed.consecutiveErrorCount}</span>
+              <span className="table-actions">
+                <button onClick={() => void handleToggleFeedPaused(feed)} type="button">
+                  {feed.isPaused ? "resume" : "pause"}
+                </button>
+                <button onClick={() => void handleRetryFeed(feed)} type="button">
+                  retry now
+                </button>
+              </span>
+            </div>
+          ))
+        )}
+      </section>
+
+      <section className="table-shell" aria-label="Recent fetch events">
+        <div className="table-head">
+          <span>when</span>
+          <span>feed</span>
+          <span>status</span>
+          <span>details</span>
+        </div>
+
+        {fetchEvents.length === 0 ? (
+          <div className="table-row table-row-empty">
+            <span>no fetch history yet</span>
+          </div>
+        ) : (
+          fetchEvents.map((event) => (
+            <div key={event.id} className="table-row">
+              <span>{formatTimestamp(event.fetchedAt)}</span>
+              <span>{event.feedTitle ?? event.feedUrl}</span>
+              <span className={`status-pill status-${getFetchEventTone(event)}`}>
+                {event.status}
+              </span>
+              <span>
+                <span className="table-subline">
+                  {event.errorMessage ??
+                    `http=${event.httpStatus ?? "-"} duration=${event.durationMs ?? "-"}ms missing_pub=${event.missingPublishedAtCount}`}
+                </span>
+              </span>
             </div>
           ))
         )}
@@ -1010,9 +1104,29 @@ function formatItemTimestamp(item: Item): string {
   return item.publishedAt ? formatTimestamp(item.publishedAt) : "(no pub date)";
 }
 
-function normalizeStatus(status: string): "ok" | "parse" | "network" {
-  if (status === "parse" || status === "network") {
-    return status;
+function getFeedTone(feed: Feed): "ok" | "parse" | "network" | "paused" {
+  if (feed.isPaused) {
+    return "paused";
+  }
+
+  if (feed.lastErrorCategory === "parse" || feed.status === "parse") {
+    return "parse";
+  }
+
+  if (feed.lastErrorCategory === "network" || feed.status === "error" || feed.status === "network") {
+    return "network";
+  }
+
+  return "ok";
+}
+
+function getFetchEventTone(event: FetchEvent): "ok" | "parse" | "network" {
+  if (event.errorCategory === "parse") {
+    return "parse";
+  }
+
+  if (event.errorCategory === "network" || event.status === "error") {
+    return "network";
   }
 
   return "ok";

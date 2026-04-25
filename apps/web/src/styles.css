@@ -383,6 +383,18 @@ button:disabled {
   color: var(--muted);
 }
 
+.table-subline {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.table-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .status-pill {
   display: inline-flex;
   max-width: fit-content;
@@ -398,6 +410,10 @@ button:disabled {
 
 .status-network {
   color: var(--error);
+}
+
+.status-paused {
+  color: var(--warn);
 }
 
 .secondary-button,

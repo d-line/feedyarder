@@ -202,6 +202,109 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /feeds/{id}:
+    patch:
+      operationId: updateFeed
+      summary: Update feed metadata or paused state
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFeedRequest"
+      responses:
+        "200":
+          description: Feed updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Feed not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /feeds/{id}/retry:
+    post:
+      operationId: retryFeedNow
+      summary: Queue a feed for immediate retry and ensure it is unpaused
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Feed scheduled for retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Feed not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /fetch-events:
+    get:
+      operationId: listFetchEvents
+      summary: List recent fetch events
+      parameters:
+        - in: query
+          name: feedId
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Fetch event list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FetchEventResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /items:
     get:
       operationId: listItems
@@ -299,22 +402,17 @@ components:
     HealthResponse:
       type: object
       additionalProperties: false
-      required:
-        - ok
-        - service
+      required: [ok, service]
       properties:
         ok:
           type: boolean
         service:
           type: string
-          enum:
-            - api
+          enum: [api]
     SetupRequest:
       type: object
       additionalProperties: false
-      required:
-        - username
-        - password
+      required: [username, password]
       properties:
         username:
           type: string
@@ -327,9 +425,7 @@ components:
     SessionRequest:
       type: object
       additionalProperties: false
-      required:
-        - username
-        - password
+      required: [username, password]
       properties:
         username:
           type: string
@@ -338,10 +434,7 @@ components:
     UserResponse:
       type: object
       additionalProperties: false
-      required:
-        - id
-        - username
-        - createdAt
+      required: [id, username, createdAt]
       properties:
         id:
           type: string
@@ -354,15 +447,12 @@ components:
     ErrorResponse:
       type: object
       additionalProperties: false
-      required:
-        - error
+      required: [error]
       properties:
         error:
           type: object
           additionalProperties: true
-          required:
-            - code
-            - message
+          required: [code, message]
           properties:
             code:
               type: string
@@ -371,16 +461,14 @@ components:
     SetupStatusResponse:
       type: object
       additionalProperties: false
-      required:
-        - setupCompleted
+      required: [setupCompleted]
       properties:
         setupCompleted:
           type: boolean
     CreateFolderRequest:
       type: object
       additionalProperties: false
-      required:
-        - title
+      required: [title]
       properties:
         title:
           type: string
@@ -392,11 +480,7 @@ components:
     FolderResponse:
       type: object
       additionalProperties: false
-      required:
-        - id
-        - title
-        - position
-        - createdAt
+      required: [id, title, position, createdAt]
       properties:
         id:
           type: string
@@ -411,27 +495,35 @@ components:
     CreateFeedRequest:
       type: object
       additionalProperties: false
-      required:
-        - feedUrl
+      required: [feedUrl]
       properties:
         feedUrl:
           type: string
           format: uri
         title:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
           maxLength: 256
         siteUrl:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
           format: uri
         folderId:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
           format: uuid
+    UpdateFeedRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: [string, "null"]
+          maxLength: 256
+        siteUrl:
+          type: [string, "null"]
+          format: uri
+        folderId:
+          type: [string, "null"]
+          format: uuid
+        isPaused:
+          type: boolean
     FeedResponse:
       type: object
       additionalProperties: false
@@ -449,32 +541,25 @@ components:
         - lastSuccessAt
         - lastErrorAt
         - lastErrorCategory
+        - lastErrorMessage
         - createdAt
       properties:
         id:
           type: string
           format: uuid
         folderId:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
           format: uuid
         title:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
         siteUrl:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
           format: uri
         feedUrl:
           type: string
           format: uri
         faviconUrl:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
           format: uri
         status:
           type: string
@@ -485,22 +570,60 @@ components:
         consecutiveErrorCount:
           type: integer
         lastSuccessAt:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
           format: date-time
         lastErrorAt:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
           format: date-time
         lastErrorCategory:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
+        lastErrorMessage:
+          type: [string, "null"]
         createdAt:
           type: string
           format: date-time
+    FetchEventResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - feedId
+        - feedTitle
+        - feedUrl
+        - status
+        - errorCategory
+        - errorMessage
+        - httpStatus
+        - missingPublishedAtCount
+        - fetchedAt
+        - durationMs
+      properties:
+        id:
+          type: string
+          format: uuid
+        feedId:
+          type: string
+          format: uuid
+        feedTitle:
+          type: [string, "null"]
+        feedUrl:
+          type: string
+          format: uri
+        status:
+          type: string
+        errorCategory:
+          type: [string, "null"]
+        errorMessage:
+          type: [string, "null"]
+        httpStatus:
+          type: [integer, "null"]
+        missingPublishedAtCount:
+          type: integer
+        fetchedAt:
+          type: string
+          format: date-time
+        durationMs:
+          type: [integer, "null"]
     ItemResponse:
       type: object
       additionalProperties: false
@@ -525,34 +648,20 @@ components:
           type: string
           format: uuid
         feedTitle:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
         title:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
         url:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
           format: uri
         author:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
         summaryText:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
         contentHtml:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
         publishedAt:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
           format: date-time
         isRead:
           type: boolean
@@ -564,18 +673,14 @@ components:
     ItemListResponse:
       type: object
       additionalProperties: false
-      required:
-        - items
-        - nextCursor
+      required: [items, nextCursor]
       properties:
         items:
           type: array
           items:
             $ref: "#/components/schemas/ItemResponse"
         nextCursor:
-          type:
-            - string
-            - "null"
+          type: [string, "null"]
     UpdateItemStateRequest:
       type: object
       additionalProperties: false

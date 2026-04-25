@@ -28,6 +28,7 @@ export interface FeedRecord {
   last_success_at: Date | null;
   last_error_at: Date | null;
   last_error_category: string | null;
+  last_error_message: string | null;
   created_at: Date;
 }
 
@@ -45,7 +46,36 @@ export interface FeedResponse {
   lastSuccessAt: string | null;
   lastErrorAt: string | null;
   lastErrorCategory: string | null;
+  lastErrorMessage: string | null;
   createdAt: string;
+}
+
+export interface FetchEventRecord {
+  id: string;
+  feed_id: string;
+  feed_title: string | null;
+  feed_url: string;
+  status: string;
+  error_category: string | null;
+  error_message: string | null;
+  http_status: number | null;
+  missing_published_at_count: number;
+  fetched_at: Date;
+  duration_ms: number | null;
+}
+
+export interface FetchEventResponse {
+  id: string;
+  feedId: string;
+  feedTitle: string | null;
+  feedUrl: string;
+  status: string;
+  errorCategory: string | null;
+  errorMessage: string | null;
+  httpStatus: number | null;
+  missingPublishedAtCount: number;
+  fetchedAt: string;
+  durationMs: number | null;
 }
 
 function mapFolder(row: FolderRecord): FolderResponse {
@@ -69,10 +99,27 @@ function mapFeed(row: FeedRecord): FeedResponse {
     isPaused: row.is_paused,
     lastErrorAt: row.last_error_at?.toISOString() ?? null,
     lastErrorCategory: row.last_error_category,
+    lastErrorMessage: row.last_error_message,
     lastSuccessAt: row.last_success_at?.toISOString() ?? null,
     siteUrl: row.site_url,
     status: row.status,
     title: row.title
+  };
+}
+
+function mapFetchEvent(row: FetchEventRecord): FetchEventResponse {
+  return {
+    durationMs: row.duration_ms,
+    errorCategory: row.error_category,
+    errorMessage: row.error_message,
+    feedId: row.feed_id,
+    feedTitle: row.feed_title,
+    feedUrl: row.feed_url,
+    fetchedAt: row.fetched_at.toISOString(),
+    httpStatus: row.http_status,
+    id: row.id,
+    missingPublishedAtCount: row.missing_published_at_count,
+    status: row.status
   };
 }
 
@@ -127,6 +174,7 @@ export async function listFeeds(pool: Pool): Promise<FeedResponse[]> {
         last_success_at,
         last_error_at,
         last_error_category,
+        last_error_message,
         created_at
       from feeds
       order by created_at asc, id asc
@@ -169,6 +217,7 @@ export async function createFeed(
         last_success_at,
         last_error_at,
         last_error_category,
+        last_error_message,
         created_at
     `,
     [input.folderId, input.title, input.siteUrl, input.feedUrl]
@@ -181,4 +230,123 @@ export async function createFeed(
   }
 
   return mapFeed(row);
+}
+
+export async function updateFeed(
+  pool: Pool,
+  feedId: string,
+  input: {
+    folderId: string | null;
+    isPaused: boolean | null;
+    siteUrl: string | null;
+    title: string | null;
+  }
+): Promise<FeedResponse | null> {
+  const result = await pool.query<FeedRecord>(
+    `
+      update feeds
+      set
+        folder_id = coalesce($2, folder_id),
+        title = coalesce($3, title),
+        site_url = coalesce($4, site_url),
+        is_paused = coalesce($5, is_paused),
+        updated_at = now()
+      where id = $1
+      returning
+        id,
+        folder_id,
+        title,
+        site_url,
+        feed_url,
+        favicon_url,
+        status,
+        is_paused,
+        fetch_interval_minutes,
+        consecutive_error_count,
+        last_success_at,
+        last_error_at,
+        last_error_category,
+        last_error_message,
+        created_at
+    `,
+    [feedId, input.folderId, input.title, input.siteUrl, input.isPaused]
+  );
+
+  const row = result.rows[0];
+  return row ? mapFeed(row) : null;
+}
+
+export async function retryFeedNow(pool: Pool, feedId: string): Promise<FeedResponse | null> {
+  const result = await pool.query<FeedRecord>(
+    `
+      update feeds
+      set
+        is_paused = false,
+        next_fetch_at = now(),
+        updated_at = now()
+      where id = $1
+      returning
+        id,
+        folder_id,
+        title,
+        site_url,
+        feed_url,
+        favicon_url,
+        status,
+        is_paused,
+        fetch_interval_minutes,
+        consecutive_error_count,
+        last_success_at,
+        last_error_at,
+        last_error_category,
+        last_error_message,
+        created_at
+    `,
+    [feedId]
+  );
+
+  const row = result.rows[0];
+  return row ? mapFeed(row) : null;
+}
+
+export async function listFetchEvents(
+  pool: Pool,
+  input: { feedId: string | null; limit: number }
+): Promise<FetchEventResponse[]> {
+  const values: Array<number | string> = [];
+  const whereParts: string[] = [];
+
+  if (input.feedId) {
+    values.push(input.feedId);
+    whereParts.push(`fetch_events.feed_id = $${values.length}`);
+  }
+
+  values.push(input.limit);
+  const limitIndex = values.length;
+  const whereClause = whereParts.length > 0 ? `where ${whereParts.join(" and ")}` : "";
+
+  const result = await pool.query<FetchEventRecord>(
+    `
+      select
+        fetch_events.id,
+        fetch_events.feed_id,
+        feeds.title as feed_title,
+        feeds.feed_url,
+        fetch_events.status,
+        fetch_events.error_category,
+        fetch_events.error_message,
+        fetch_events.http_status,
+        fetch_events.missing_published_at_count,
+        fetch_events.fetched_at,
+        fetch_events.duration_ms
+      from fetch_events
+      join feeds on feeds.id = fetch_events.feed_id
+      ${whereClause}
+      order by fetch_events.fetched_at desc, fetch_events.id desc
+      limit $${limitIndex}
+    `,
+    values
+  );
+
+  return result.rows.map(mapFetchEvent);
 }
