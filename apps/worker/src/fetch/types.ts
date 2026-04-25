@@ -20,10 +20,31 @@ export interface FetchCycleSummaryItem {
   missingPublishedAtCount?: number;
 }
 
+export interface NormalizedItem {
+  guid: string | null;
+  dedupeKey: string;
+  title: string | null;
+  url: string | null;
+  author: string | null;
+  summaryText: string | null;
+  contentHtml: string | null;
+  publishedAt: string | null;
+  rawExtensionData: Record<string, unknown>;
+}
+
 export interface FetchOutcome {
   status: FetchStatus;
-  errorCategory?: FetchErrorCategory;
-  errorMessage?: string;
+  errorCategory: FetchErrorCategory | null;
+  errorMessage: string | null;
   missingPublishedAtCount: number;
   nextFetchIntervalMinutes: number;
+  newItemCount: number;
+  httpStatus: number | null;
+  etag: string | null;
+  lastModified: string | null;
+  feedTitle: string | null;
+  siteUrl: string | null;
+  faviconUrl: string | null;
+  items: NormalizedItem[];
+  durationMs: number;
 }

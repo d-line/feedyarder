@@ -2,6 +2,8 @@ import type { Pool } from "pg";
 
 import type { WorkerConfig } from "./config.js";
 import { categorizeFetchError } from "./fetch/errors.js";
+import { fetchFeedDocument } from "./fetch/http.js";
+import { parseFeedDocument } from "./fetch/normalize.js";
 import { calculateNextFetchIntervalMinutes } from "./fetch/schedule.js";
 import type { DueFeed, FetchCycleSummaryItem, FetchOutcome } from "./fetch/types.js";
 import { sendFetchCycleSummary } from "./notifications.js";
@@ -19,29 +21,32 @@ export async function runWorkerCycle(
   }
 
   const summaryItems: FetchCycleSummaryItem[] = [];
-  const feedsToProcess = dueFeeds.slice(0, config.WORKER_CONCURRENCY);
+  const feedsToProcess = dueFeeds.slice(0, config.WORKER_BATCH_SIZE);
+  const results = await mapWithConcurrency(
+    feedsToProcess,
+    config.WORKER_CONCURRENCY,
+    (feed) => processFeed(feed, config)
+  );
 
-  for (const feed of feedsToProcess) {
-    const outcome = await processFeed(feed);
-
-    await recordFetchOutcome(pool, feed, outcome);
+  for (const result of results) {
+    await recordFetchOutcome(pool, result.feed, result.outcome);
 
     const summaryItem: FetchCycleSummaryItem = {
-      feedId: feed.id,
-      feedUrl: feed.feedUrl,
-      status: outcome.status
+      feedId: result.feed.id,
+      feedUrl: result.feed.feedUrl,
+      status: result.outcome.status
     };
 
-    if (outcome.errorCategory) {
-      summaryItem.errorCategory = outcome.errorCategory;
+    if (result.outcome.errorCategory) {
+      summaryItem.errorCategory = result.outcome.errorCategory;
     }
 
-    if (outcome.errorMessage) {
-      summaryItem.errorMessage = outcome.errorMessage;
+    if (result.outcome.errorMessage) {
+      summaryItem.errorMessage = result.outcome.errorMessage;
     }
 
-    if (outcome.missingPublishedAtCount > 0) {
-      summaryItem.missingPublishedAtCount = outcome.missingPublishedAtCount;
+    if (result.outcome.missingPublishedAtCount > 0) {
+      summaryItem.missingPublishedAtCount = result.outcome.missingPublishedAtCount;
     }
 
     summaryItems.push(summaryItem);
@@ -50,44 +55,115 @@ export async function runWorkerCycle(
   await sendFetchCycleSummary(pool, config, summaryItems);
 }
 
-async function processFeed(feed: DueFeed): Promise<FetchOutcome> {
-  try {
-    const result = await fetchFeedDocument(feed.feedUrl);
+async function processFeed(
+  feed: DueFeed,
+  config: WorkerConfig
+): Promise<{ feed: DueFeed; outcome: FetchOutcome }> {
+  const startedAt = Date.now();
 
-    const nextFetchIntervalMinutes = calculateNextFetchIntervalMinutes({
-      currentIntervalMinutes: feed.fetchIntervalMinutes,
-      consecutiveErrorCount: feed.consecutiveErrorCount,
-      newItemCount: 0,
-      status: result
-    });
+  try {
+    const fetched = await fetchFeedDocument(feed, config);
+
+    if (fetched.status === "not_modified") {
+      return {
+        feed,
+        outcome: {
+          durationMs: Date.now() - startedAt,
+          errorCategory: null,
+          errorMessage: null,
+          etag: fetched.etag,
+          faviconUrl: null,
+          feedTitle: null,
+          httpStatus: fetched.httpStatus,
+          items: [],
+          lastModified: fetched.lastModified,
+          missingPublishedAtCount: 0,
+          newItemCount: 0,
+          nextFetchIntervalMinutes: calculateNextFetchIntervalMinutes({
+            currentIntervalMinutes: feed.fetchIntervalMinutes,
+            consecutiveErrorCount: feed.consecutiveErrorCount,
+            newItemCount: 0,
+            status: "not_modified"
+          }),
+          siteUrl: null,
+          status: "not_modified"
+        }
+      };
+    }
+
+    const parsed = parseFeedDocument(fetched.body ?? "", feed.id);
+    const newItemCount = parsed.items.length;
 
     return {
-      status: result,
-      missingPublishedAtCount: 0,
-      nextFetchIntervalMinutes
+      feed,
+      outcome: {
+        durationMs: Date.now() - startedAt,
+        errorCategory: null,
+        errorMessage: null,
+        etag: fetched.etag,
+        faviconUrl: parsed.faviconUrl,
+        feedTitle: parsed.title,
+        httpStatus: fetched.httpStatus,
+        items: parsed.items,
+        lastModified: fetched.lastModified,
+        missingPublishedAtCount: parsed.missingPublishedAtCount,
+        newItemCount,
+        nextFetchIntervalMinutes: calculateNextFetchIntervalMinutes({
+          currentIntervalMinutes: feed.fetchIntervalMinutes,
+          consecutiveErrorCount: feed.consecutiveErrorCount,
+          newItemCount,
+          status: "success"
+        }),
+        siteUrl: parsed.siteUrl,
+        status: "success"
+      }
     };
   } catch (error) {
     return {
-      status: "error",
-      errorCategory: categorizeFetchError(error),
-      errorMessage: error instanceof Error ? error.message : "Unknown fetch failure",
-      missingPublishedAtCount: 0,
-      nextFetchIntervalMinutes: calculateNextFetchIntervalMinutes({
-        currentIntervalMinutes: feed.fetchIntervalMinutes,
-        consecutiveErrorCount: feed.consecutiveErrorCount + 1,
+      feed,
+      outcome: {
+        durationMs: Date.now() - startedAt,
+        errorCategory: categorizeFetchError(error),
+        errorMessage: error instanceof Error ? error.message : "Unknown fetch failure",
+        etag: null,
+        faviconUrl: null,
+        feedTitle: null,
+        httpStatus: "status" in (error as object) ? Number((error as { status?: number }).status) : null,
+        items: [],
+        lastModified: null,
+        missingPublishedAtCount: 0,
         newItemCount: 0,
+        nextFetchIntervalMinutes: calculateNextFetchIntervalMinutes({
+          currentIntervalMinutes: feed.fetchIntervalMinutes,
+          consecutiveErrorCount: feed.consecutiveErrorCount + 1,
+          newItemCount: 0,
+          status: "error"
+        }),
+        siteUrl: null,
         status: "error"
-      })
+      }
     };
   }
 }
 
-async function fetchFeedDocument(feedUrl: string): Promise<"success" | "not_modified"> {
-  console.log(`Fetch stub: ${feedUrl}`);
+async function mapWithConcurrency<TInput, TOutput>(
+  items: TInput[],
+  limit: number,
+  iteratee: (item: TInput) => Promise<TOutput>
+): Promise<TOutput[]> {
+  const results: TOutput[] = [];
+  let currentIndex = 0;
 
-  if (feedUrl.trim().length === 0) {
-    throw new Error("Feed URL is empty");
+  async function runWorker(): Promise<void> {
+    while (currentIndex < items.length) {
+      const index = currentIndex;
+      currentIndex += 1;
+      results[index] = await iteratee(items[index] as TInput);
+    }
   }
 
-  return "success";
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+
+  return results;
 }
