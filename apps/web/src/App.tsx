@@ -408,7 +408,8 @@ function ReaderRoute() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [expandedIds, setExpandedIds] = useState<string[]>([]);
+  const [activeItemId, setActiveItemId] = useState("");
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [filters, setFilters] = useState({
     feedId: "",
@@ -418,10 +419,138 @@ function ReaderRoute() {
     starredOnly: false
   });
   const itemRefs = useRef<Record<string, HTMLElement | null>>({});
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     void loadReaderState(true);
   }, [filters.feedId, filters.folderId, filters.q, filters.readMode, filters.starredOnly]);
+
+  useEffect(() => {
+    if (items.length === 0) {
+      setActiveItemId("");
+      setExpandedItemId(null);
+      return;
+    }
+
+    if (!items.some((item) => item.id === activeItemId)) {
+      setActiveItemId(items[0]?.id ?? "");
+    }
+
+    if (expandedItemId && !items.some((item) => item.id === expandedItemId)) {
+      setExpandedItemId(null);
+    }
+  }, [activeItemId, expandedItemId, items]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent): void {
+      const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+
+      if (event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+
+      if (isInteractiveTarget(event.target)) {
+        if (event.key === "Escape" && document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+
+        return;
+      }
+
+      const activeIndex = items.findIndex((item) => item.id === activeItemId);
+      const selectedItem = activeIndex >= 0 ? items[activeIndex] ?? null : (items[0] ?? null);
+
+      switch (key) {
+        case "/":
+          event.preventDefault();
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+          return;
+        case "Escape":
+          if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+          }
+          return;
+        case "a":
+          event.preventDefault();
+          setFilters((current) => ({
+            ...current,
+            readMode: "all"
+          }));
+          return;
+        case "u":
+          event.preventDefault();
+          setFilters((current) => ({
+            ...current,
+            readMode: "unread"
+          }));
+          return;
+        default:
+          break;
+      }
+
+      if (!selectedItem) {
+        return;
+      }
+
+      switch (key) {
+        case "j":
+        case "ArrowDown": {
+          event.preventDefault();
+
+          const nextItem = activeIndex >= 0 ? items[activeIndex + 1] ?? null : (items[0] ?? null);
+
+          if (nextItem) {
+            selectItem(nextItem.id, {
+              carryExpanded: expandedItemId === selectedItem.id
+            });
+          }
+
+          return;
+        }
+        case "k":
+        case "ArrowUp": {
+          event.preventDefault();
+
+          if (activeIndex <= 0) {
+            selectItem(selectedItem.id);
+            return;
+          }
+
+          const previousItem = items[activeIndex - 1] ?? null;
+
+          if (previousItem) {
+            selectItem(previousItem.id, {
+              carryExpanded: expandedItemId === selectedItem.id
+            });
+          }
+
+          return;
+        }
+        case "Enter":
+        case "o":
+          event.preventDefault();
+          handleToggleExpanded(selectedItem.id);
+          return;
+        case "m":
+          event.preventDefault();
+          void handleToggleRead(selectedItem);
+          return;
+        case "s":
+          event.preventDefault();
+          void handleToggleStar(selectedItem);
+          return;
+        default:
+          return;
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [activeItemId, expandedItemId, items]);
 
   async function loadReaderState(reset: boolean): Promise<void> {
     try {
@@ -504,22 +633,59 @@ function ReaderRoute() {
     setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
   }
 
-  function handleToggleExpanded(itemId: string): void {
-    setExpandedIds((current) => {
-      const isExpanded = current.includes(itemId);
-      const next = isExpanded
-        ? current.filter((value) => value !== itemId)
-        : [...current, itemId];
+  function scrollItemToTop(itemId: string): void {
+    const element = itemRefs.current[itemId];
 
-      if (!isExpanded) {
+    if (!element) {
+      return;
+    }
+
+    const listElement = element.parentElement;
+    const listStyles = listElement ? window.getComputedStyle(listElement) : null;
+    const rowStyles = window.getComputedStyle(element);
+    const rowGap = Number.parseFloat(listStyles?.rowGap ?? listStyles?.gap ?? "0");
+    const borderTop = Number.parseFloat(rowStyles.borderTopWidth || "0");
+    const visualOffset = rowGap + borderTop + 6;
+    const top = window.scrollY + element.getBoundingClientRect().top - visualOffset;
+
+    window.scrollTo({
+      behavior: "smooth",
+      top: Math.max(0, top)
+    });
+  }
+
+  function selectItem(itemId: string, options?: { carryExpanded?: boolean }): void {
+    setActiveItemId(itemId);
+
+    if (options?.carryExpanded) {
+      setExpandedItemId(itemId);
+
+      requestAnimationFrame(() => {
+        scrollItemToTop(itemId);
+      });
+
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      itemRefs.current[itemId]?.scrollIntoView({
+        block: "nearest"
+      });
+    });
+  }
+
+  function handleToggleExpanded(itemId: string): void {
+    setActiveItemId(itemId);
+    setExpandedItemId((current) => {
+      const nextItemId = current === itemId ? null : itemId;
+
+      if (nextItemId) {
         requestAnimationFrame(() => {
-          itemRefs.current[itemId]?.scrollIntoView({
-            block: "start"
-          });
+          scrollItemToTop(itemId);
         });
       }
 
-      return next;
+      return nextItemId;
     });
   }
 
@@ -530,6 +696,9 @@ function ReaderRoute() {
         <h1>single-pane story stream</h1>
         <p className="section-copy">
           Real item data now comes from the public API with cursor pagination, filters, and state toggles.
+        </p>
+        <p className="section-copy">
+          shortcuts: `j/k` move, `enter` open, `m` read, `s` star, `/` search, `u` unread, `a` all
         </p>
       </header>
 
@@ -636,6 +805,7 @@ function ReaderRoute() {
             <input
               onChange={(event) => setSearchInput(event.target.value)}
               placeholder="search items"
+              ref={searchInputRef}
               type="search"
               value={searchInput}
             />
@@ -649,12 +819,21 @@ function ReaderRoute() {
 
       <div className="story-list" role="list">
         {items.map((item) => {
-          const isExpanded = expandedIds.includes(item.id);
+          const isExpanded = expandedItemId === item.id;
+          const isActive = item.id === activeItemId;
 
           return (
             <article
               key={item.id}
-              className={item.isRead ? "story-row story-row-read" : "story-row"}
+              className={
+                item.isRead
+                  ? isActive
+                    ? "story-row story-row-read story-row-active"
+                    : "story-row story-row-read"
+                  : isActive
+                    ? "story-row story-row-active"
+                    : "story-row"
+              }
               ref={(element) => {
                 itemRefs.current[item.id] = element;
               }}
@@ -664,6 +843,7 @@ function ReaderRoute() {
                 onClick={() => handleToggleExpanded(item.id)}
                 type="button"
               >
+                <span className="story-active-marker">{isActive ? ">" : " "}</span>
                 <span className="story-id">{item.id.slice(0, 8)}</span>
                 <span className="story-feed">{item.feedTitle ?? "unknown-feed"}</span>
                 <span className="story-title">{item.title ?? "(untitled item)"}</span>
@@ -1427,6 +1607,19 @@ function isApiErrorCode(error: unknown, code: string): boolean {
     "error" in error &&
     (error as ApiErrorResponse).error?.code === code
   );
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (target.isContentEditable) {
+    return true;
+  }
+
+  const tagName = target.tagName.toLowerCase();
+  return tagName === "input" || tagName === "textarea" || tagName === "select";
 }
 
 function findFolderTitle(folders: Folder[], folderId: string | null): string {

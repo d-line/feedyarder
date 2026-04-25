@@ -35,8 +35,20 @@ If the project direction changes, this file must be updated to reflect the new a
 - Collapsed story rows show feed name and story title.
 - Expanded story view shows as much extracted feed data as available.
 - Expanded view should include full title, human-readable publication date when available, author when available, and actions for read/unread and star.
+- Only one story may be expanded at a time.
 - Marking a story as read should not remove it from the list; it should visually fade.
 - Expanding a story should scroll it to the top of the viewport.
+- Expanded-story scrolling should account for the row gap/border so the result looks intentional rather than flush.
+- When navigating between stories, an open story should transfer its expanded state to the next or previous selected story.
+- Reader keyboard shortcuts for v1:
+  - `j` / `ArrowDown` moves to the next story
+  - `k` / `ArrowUp` moves to the previous story
+  - `Enter` / `o` toggles expansion on the selected story
+  - `m` toggles read/unread on the selected story
+  - `s` toggles starred on the selected story
+  - `/` focuses the search field
+  - `u` switches to unread view
+  - `a` switches to all-items view
 - Sorting is by `published_at`.
 - If `published_at` is missing, store `null`, notify via summary, and learn from real data before adding more logic.
 
