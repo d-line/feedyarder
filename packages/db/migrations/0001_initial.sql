@@ -1,13 +1,13 @@
 create extension if not exists pgcrypto;
 
-create table users (
+create table if not exists users (
   id uuid primary key default gen_random_uuid(),
   username text not null unique,
   password_hash text not null,
   created_at timestamptz not null default now()
 );
 
-create table sessions (
+create table if not exists sessions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references users (id) on delete cascade,
   session_token text not null unique,
@@ -15,14 +15,14 @@ create table sessions (
   created_at timestamptz not null default now()
 );
 
-create table folders (
+create table if not exists folders (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   position integer not null default 0,
   created_at timestamptz not null default now()
 );
 
-create table feeds (
+create table if not exists feeds (
   id uuid primary key default gen_random_uuid(),
   folder_id uuid references folders (id) on delete set null,
   title text,
@@ -45,7 +45,7 @@ create table feeds (
   updated_at timestamptz not null default now()
 );
 
-create table items (
+create table if not exists items (
   id uuid primary key default gen_random_uuid(),
   feed_id uuid not null references feeds (id) on delete cascade,
   guid text,
@@ -65,7 +65,7 @@ create table items (
   unique (feed_id, dedupe_key)
 );
 
-create table fetch_events (
+create table if not exists fetch_events (
   id uuid primary key default gen_random_uuid(),
   feed_id uuid not null references feeds (id) on delete cascade,
   status text not null,
@@ -77,20 +77,20 @@ create table fetch_events (
   duration_ms integer
 );
 
-create table notification_batches (
+create table if not exists notification_batches (
   id uuid primary key default gen_random_uuid(),
   kind text not null,
   payload jsonb not null,
   sent_at timestamptz not null default now()
 );
 
-create index feeds_next_fetch_at_idx on feeds (next_fetch_at) where is_paused = false;
-create index feeds_folder_id_idx on feeds (folder_id);
-create index items_feed_published_idx on items (feed_id, published_at desc, id desc);
-create index items_unread_published_idx on items (is_read, published_at desc, id desc);
-create index items_starred_published_idx on items (is_starred, published_at desc, id desc);
-create index items_published_id_idx on items (published_at desc, id desc);
-create index items_search_document_idx on items using gin (
+create index if not exists feeds_next_fetch_at_idx on feeds (next_fetch_at) where is_paused = false;
+create index if not exists feeds_folder_id_idx on feeds (folder_id);
+create index if not exists items_feed_published_idx on items (feed_id, published_at desc, id desc);
+create index if not exists items_unread_published_idx on items (is_read, published_at desc, id desc);
+create index if not exists items_starred_published_idx on items (is_starred, published_at desc, id desc);
+create index if not exists items_published_id_idx on items (published_at desc, id desc);
+create index if not exists items_search_document_idx on items using gin (
   to_tsvector(
     'simple',
     coalesce(title, '') || ' ' ||
