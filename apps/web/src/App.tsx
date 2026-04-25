@@ -1,4 +1,5 @@
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import DOMPurify from "dompurify";
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 interface User {
@@ -861,7 +862,7 @@ function ReaderRoute() {
                   {item.contentHtml ? (
                     <div
                       className="story-body"
-                      dangerouslySetInnerHTML={{ __html: item.contentHtml }}
+                      dangerouslySetInnerHTML={{ __html: sanitizeFeedHtml(item.contentHtml) }}
                     />
                   ) : (
                     <p className="story-body">{item.summaryText ?? "No content."}</p>
@@ -1823,6 +1824,27 @@ function sortFolders(folders: Folder[]): Folder[] {
     }
 
     return left.createdAt.localeCompare(right.createdAt);
+  });
+}
+
+function sanitizeFeedHtml(html: string): string {
+  return DOMPurify.sanitize(html, {
+    FORBID_ATTR: ["onerror", "onload", "style"],
+    FORBID_TAGS: [
+      "base",
+      "embed",
+      "form",
+      "iframe",
+      "input",
+      "link",
+      "meta",
+      "object",
+      "script",
+      "style"
+    ],
+    USE_PROFILES: {
+      html: true
+    }
   });
 }
 
