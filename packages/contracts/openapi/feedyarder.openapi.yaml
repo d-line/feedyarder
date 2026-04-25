@@ -17,7 +17,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
-  /setup:
+  /setup/status:
     get:
       operationId: getSetupStatus
       summary: Check whether bootstrap has already been completed
@@ -28,6 +28,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SetupStatusResponse"
+  /setup:
     post:
       operationId: createInitialUser
       summary: Bootstrap the single local user
@@ -232,6 +233,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Feed not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteFeed
+      summary: Delete a feed and cascade-delete its items and fetch history
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Feed deleted
         "401":
           description: Authentication required
           content:
@@ -559,6 +585,9 @@ components:
       type: object
       additionalProperties: false
       properties:
+        feedUrl:
+          type: string
+          format: uri
         title:
           type: [string, "null"]
           maxLength: 256

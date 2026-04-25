@@ -236,20 +236,22 @@ export async function updateFeed(
   pool: Pool,
   feedId: string,
   input: {
-    folderId: string | null;
-    isPaused: boolean | null;
-    siteUrl: string | null;
-    title: string | null;
+    feedUrl?: string;
+    folderId?: string | null;
+    isPaused?: boolean;
+    siteUrl?: string | null;
+    title?: string | null;
   }
 ): Promise<FeedResponse | null> {
   const result = await pool.query<FeedRecord>(
     `
       update feeds
       set
-        folder_id = coalesce($2, folder_id),
-        title = coalesce($3, title),
-        site_url = coalesce($4, site_url),
-        is_paused = coalesce($5, is_paused),
+        folder_id = case when $2 then $3 else folder_id end,
+        title = case when $4 then $5 else title end,
+        site_url = case when $6 then $7 else site_url end,
+        feed_url = case when $8 then $9 else feed_url end,
+        is_paused = case when $10 then $11 else is_paused end,
         updated_at = now()
       where id = $1
       returning
@@ -269,11 +271,36 @@ export async function updateFeed(
         last_error_message,
         created_at
     `,
-    [feedId, input.folderId, input.title, input.siteUrl, input.isPaused]
+    [
+      feedId,
+      input.folderId !== undefined,
+      input.folderId ?? null,
+      input.title !== undefined,
+      input.title ?? null,
+      input.siteUrl !== undefined,
+      input.siteUrl ?? null,
+      input.feedUrl !== undefined,
+      input.feedUrl ?? null,
+      input.isPaused !== undefined,
+      input.isPaused ?? null
+    ]
   );
 
   const row = result.rows[0];
   return row ? mapFeed(row) : null;
+}
+
+export async function deleteFeed(pool: Pool, feedId: string): Promise<boolean> {
+  const result = await pool.query<{ id: string }>(
+    `
+      delete from feeds
+      where id = $1
+      returning id
+    `,
+    [feedId]
+  );
+
+  return (result.rowCount ?? 0) > 0;
 }
 
 export async function retryFeedNow(pool: Pool, feedId: string): Promise<FeedResponse | null> {

@@ -18,6 +18,7 @@ import { getPool } from "./db/pool.js";
 import {
   createFeed,
   createFolder,
+  deleteFeed,
   listFetchEvents,
   listFeeds,
   listFolders,
@@ -271,18 +272,54 @@ export function createApp(config: AppConfig) {
 
       const { id } = request.params;
       const payload = updateFeedRequestSchema.parse(request.body);
-      const feed = await updateFeed(pool, id, {
-        folderId: payload.folderId ?? null,
-        isPaused: payload.isPaused ?? null,
-        siteUrl: payload.siteUrl ?? null,
-        title: payload.title ?? null
-      });
+      const updateInput: Parameters<typeof updateFeed>[2] = {};
+
+      if (typeof payload.feedUrl === "string") {
+        updateInput.feedUrl = payload.feedUrl;
+      }
+
+      if ("folderId" in payload) {
+        updateInput.folderId = payload.folderId ?? null;
+      }
+
+      if (typeof payload.isPaused === "boolean") {
+        updateInput.isPaused = payload.isPaused;
+      }
+
+      if ("siteUrl" in payload) {
+        updateInput.siteUrl = payload.siteUrl ?? null;
+      }
+
+      if ("title" in payload) {
+        updateInput.title = payload.title ?? null;
+      }
+
+      const feed = await updateFeed(pool, id, updateInput);
 
       if (!feed) {
         return sendError(response, 404, "feed_not_found", "Feed was not found.");
       }
 
       return response.json(feed);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/feeds/:id", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      const { id } = request.params;
+      const deleted = await deleteFeed(pool, id);
+
+      if (!deleted) {
+        return sendError(response, 404, "feed_not_found", "Feed was not found.");
+      }
+
+      return response.status(204).send();
     } catch (error) {
       next(error);
     }

@@ -737,16 +737,52 @@ function AdminRoute() {
   const [feedTitle, setFeedTitle] = useState("");
   const [siteUrl, setSiteUrl] = useState("");
   const [folderId, setFolderId] = useState("");
+  const [selectedFeedId, setSelectedFeedId] = useState("");
+  const [editFeedUrl, setEditFeedUrl] = useState("");
+  const [editFeedTitle, setEditFeedTitle] = useState("");
+  const [editSiteUrl, setEditSiteUrl] = useState("");
+  const [editFolderId, setEditFolderId] = useState("");
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [isSubmittingFolder, setIsSubmittingFolder] = useState(false);
   const [isSubmittingFeed, setIsSubmittingFeed] = useState(false);
+  const [isSavingFeed, setIsSavingFeed] = useState(false);
+  const [isDeletingFeed, setIsDeletingFeed] = useState(false);
   const [opmlText, setOpmlText] = useState("");
   const [isImportingOpml, setIsImportingOpml] = useState(false);
   const [isExportingOpml, setIsExportingOpml] = useState(false);
   const [opmlResult, setOpmlResult] = useState<OpmlImportResponse | null>(null);
+  const selectedFeed = feeds.find((feed) => feed.id === selectedFeedId) ?? null;
 
   useEffect(() => {
     void loadAdminState();
   }, []);
+
+  useEffect(() => {
+    if (feeds.length === 0) {
+      applyFeedEditor(null);
+      return;
+    }
+
+    if (!selectedFeedId) {
+      applyFeedEditor(feeds[0] ?? null);
+      return;
+    }
+
+    const nextSelectedFeed = feeds.find((feed) => feed.id === selectedFeedId);
+
+    if (!nextSelectedFeed) {
+      applyFeedEditor(feeds[0] ?? null);
+    }
+  }, [feeds, selectedFeedId]);
+
+  function applyFeedEditor(feed: Feed | null): void {
+    setSelectedFeedId(feed?.id ?? "");
+    setEditFeedUrl(feed?.feedUrl ?? "");
+    setEditFeedTitle(feed?.title ?? "");
+    setEditSiteUrl(feed?.siteUrl ?? "");
+    setEditFolderId(feed?.folderId ?? "");
+    setDeleteConfirmation("");
+  }
 
   async function loadAdminState(): Promise<void> {
     try {
@@ -809,6 +845,7 @@ function AdminRoute() {
       });
 
       setFeeds((current) => [...current, createdFeed]);
+      applyFeedEditor(createdFeed);
       setFeedUrl("");
       setFeedTitle("");
       setSiteUrl("");
@@ -832,6 +869,9 @@ function AdminRoute() {
       });
 
       setFeeds((current) => current.map((entry) => (entry.id === updatedFeed.id ? updatedFeed : entry)));
+      if (selectedFeedId === updatedFeed.id) {
+        applyFeedEditor(updatedFeed);
+      }
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     }
@@ -846,9 +886,64 @@ function AdminRoute() {
       });
 
       setFeeds((current) => current.map((entry) => (entry.id === updatedFeed.id ? updatedFeed : entry)));
+      if (selectedFeedId === updatedFeed.id) {
+        applyFeedEditor(updatedFeed);
+      }
       await loadAdminState();
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
+    }
+  }
+
+  async function handleUpdateFeed(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+
+    if (!selectedFeed) {
+      return;
+    }
+
+    setIsSavingFeed(true);
+    setErrorMessage(null);
+
+    try {
+      const updatedFeed = await apiRequest<Feed>(`/feeds/${selectedFeed.id}`, {
+        body: JSON.stringify({
+          feedUrl: editFeedUrl.trim(),
+          folderId: editFolderId || null,
+          siteUrl: editSiteUrl.trim() || null,
+          title: editFeedTitle.trim() || null
+        }),
+        method: "PATCH"
+      });
+
+      setFeeds((current) => current.map((entry) => (entry.id === updatedFeed.id ? updatedFeed : entry)));
+      applyFeedEditor(updatedFeed);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsSavingFeed(false);
+    }
+  }
+
+  async function handleDeleteFeed(): Promise<void> {
+    if (!selectedFeed) {
+      return;
+    }
+
+    setIsDeletingFeed(true);
+    setErrorMessage(null);
+
+    try {
+      await apiRequest(`/feeds/${selectedFeed.id}`, {
+        method: "DELETE"
+      });
+
+      setFeeds((current) => current.filter((entry) => entry.id !== selectedFeed.id));
+      setFetchEvents((current) => current.filter((event) => event.feedId !== selectedFeed.id));
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsDeletingFeed(false);
     }
   }
 
@@ -991,6 +1086,113 @@ function AdminRoute() {
         </form>
       </div>
 
+      <form className="terminal-form terminal-form-wide" onSubmit={(event) => void handleUpdateFeed(event)}>
+        <p className="status-title">edit feed</p>
+        {selectedFeed ? (
+          <>
+            <div className="feed-editor-meta">
+              <span>status:{selectedFeed.isPaused ? "paused" : selectedFeed.status}</span>
+              <span>interval:{selectedFeed.fetchIntervalMinutes}m</span>
+              <span>errors:{selectedFeed.consecutiveErrorCount}</span>
+              <span>last success:{selectedFeed.lastSuccessAt ? formatTimestamp(selectedFeed.lastSuccessAt) : "never"}</span>
+            </div>
+
+            <div className="admin-grid">
+              <label className="form-row">
+                <span>selected feed</span>
+                <select
+                  onChange={(event) => {
+                    const nextFeed = feeds.find((feed) => feed.id === event.target.value) ?? null;
+                    applyFeedEditor(nextFeed);
+                  }}
+                  value={selectedFeedId}
+                >
+                  {feeds.map((feed) => (
+                    <option key={feed.id} value={feed.id}>
+                      {feed.title ?? feed.feedUrl}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="form-row">
+                <span>folder</span>
+                <select onChange={(event) => setEditFolderId(event.target.value)} value={editFolderId}>
+                  <option value="">none</option>
+                  {folders.map((folder) => (
+                    <option key={folder.id} value={folder.id}>
+                      {folder.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="form-row">
+                <span>feed url</span>
+                <input
+                  onChange={(event) => setEditFeedUrl(event.target.value)}
+                  type="url"
+                  value={editFeedUrl}
+                />
+              </label>
+
+              <label className="form-row">
+                <span>title override</span>
+                <input
+                  onChange={(event) => setEditFeedTitle(event.target.value)}
+                  type="text"
+                  value={editFeedTitle}
+                />
+              </label>
+
+              <label className="form-row">
+                <span>site url</span>
+                <input
+                  onChange={(event) => setEditSiteUrl(event.target.value)}
+                  type="url"
+                  value={editSiteUrl}
+                />
+              </label>
+
+              <label className="form-row">
+                <span>delete confirmation</span>
+                <input
+                  onChange={(event) => setDeleteConfirmation(event.target.value)}
+                  placeholder={selectedFeed.feedUrl}
+                  type="text"
+                  value={deleteConfirmation}
+                />
+              </label>
+            </div>
+
+            <div className="form-actions">
+              <button disabled={isSavingFeed || editFeedUrl.trim().length === 0} type="submit">
+                {isSavingFeed ? "saving..." : "save feed"}
+              </button>
+              <button
+                className="secondary-button"
+                onClick={() => applyFeedEditor(selectedFeed)}
+                type="button"
+              >
+                reset
+              </button>
+              <button
+                disabled={
+                  isDeletingFeed || deleteConfirmation.trim() !== selectedFeed.feedUrl
+                }
+                onClick={() => void handleDeleteFeed()}
+                type="button"
+              >
+                {isDeletingFeed ? "deleting..." : "delete feed"}
+              </button>
+              <span className="hint-text">type the current feed url to confirm deletion</span>
+            </div>
+          </>
+        ) : (
+          <p className="section-copy">No feeds available to edit.</p>
+        )}
+      </form>
+
       <div className="admin-grid admin-grid-wide">
         <form className="terminal-form" onSubmit={(event) => void handleImportOpml(event)}>
           <p className="status-title">import opml</p>
@@ -1090,6 +1292,9 @@ function AdminRoute() {
               <span>{feed.fetchIntervalMinutes}m</span>
               <span>{feed.consecutiveErrorCount}</span>
               <span className="table-actions">
+                <button onClick={() => applyFeedEditor(feed)} type="button">
+                  edit
+                </button>
                 <button onClick={() => void handleToggleFeedPaused(feed)} type="button">
                   {feed.isPaused ? "resume" : "pause"}
                 </button>

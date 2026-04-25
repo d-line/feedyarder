@@ -14,6 +14,7 @@ export const createFeedRequestSchema = z.object({
 
 export const updateFeedRequestSchema = z
   .object({
+    feedUrl: z.string().url().optional(),
     folderId: z.string().uuid().nullable().optional(),
     isPaused: z.boolean().optional(),
     siteUrl: z.string().url().nullable().optional(),
@@ -21,6 +22,7 @@ export const updateFeedRequestSchema = z
   })
   .refine(
     (value) =>
+      value.feedUrl !== undefined ||
       value.folderId !== undefined ||
       value.isPaused !== undefined ||
       value.siteUrl !== undefined ||

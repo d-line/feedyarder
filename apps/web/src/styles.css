@@ -186,6 +186,11 @@ body {
   padding: 1rem;
 }
 
+.terminal-form-wide {
+  max-width: none;
+  margin-bottom: 1rem;
+}
+
 .form-row {
   display: grid;
   gap: 0.45rem;
@@ -443,6 +448,15 @@ button:disabled {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
   margin-bottom: 1rem;
+}
+
+.feed-editor-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 .admin-grid-wide .terminal-form {
