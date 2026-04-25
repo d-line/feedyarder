@@ -8,6 +8,7 @@ import {
   normalizeYtDlpVideo,
   resolveYouTubeBackfillUrls
 } from "./youtube.js";
+import { parseFeedDocument } from "../fetch/normalize.js";
 
 describe("resolveYouTubeBackfillUrls", () => {
   it("resolves YouTube XML channel feeds to videos and shorts tabs", () => {
@@ -56,7 +57,7 @@ describe("normalizeYtDlpVideo", () => {
 
     expect(item).toMatchObject({
       author: "Example Channel",
-      guid: "youtube-video:abc123",
+      guid: "yt:video:abc123",
       publishedAt: "2023-11-14T22:13:20.000Z",
       rawExtensionData: {
         youtube: {
@@ -105,6 +106,44 @@ describe("normalizeYtDlpVideo", () => {
     );
 
     expect(item).toBeNull();
+  });
+
+  it("matches YouTube Atom feed dedupe keys", () => {
+    const feedId = "feed-id";
+    const atom = parseFeedDocument(
+      `<?xml version="1.0" encoding="UTF-8"?>
+      <feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015">
+        <title>Example Channel</title>
+        <link rel="alternate" href="https://www.youtube.com/channel/UC123"/>
+        <entry>
+          <id>yt:video:abc123</id>
+          <yt:videoId>abc123</yt:videoId>
+          <yt:channelId>UC123</yt:channelId>
+          <title>Example Video</title>
+          <link rel="alternate" href="https://www.youtube.com/watch?v=abc123"/>
+          <author><name>Example Channel</name></author>
+          <published>2023-11-14T22:13:20Z</published>
+          <updated>2023-11-14T22:13:20Z</updated>
+          <summary>Description</summary>
+        </entry>
+      </feed>`,
+      feedId
+    );
+    const backfilled = normalizeYtDlpVideo(
+      {
+        channel: "Example Channel",
+        description: "Description",
+        id: "abc123",
+        timestamp: 1_700_000_000,
+        title: "Example Video",
+        webpage_url: "https://www.youtube.com/watch?v=abc123"
+      },
+      "videos",
+      feedId
+    );
+
+    expect(backfilled?.guid).toBe("yt:video:abc123");
+    expect(backfilled?.dedupeKey).toBe(atom.items[0]?.dedupeKey);
   });
 });
 

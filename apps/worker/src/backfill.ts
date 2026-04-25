@@ -2,7 +2,7 @@ import { getConfig } from "./config.js";
 import { getPool } from "./db/pool.js";
 import { fetchRutrackerBackfillPage } from "./backfill/rutracker.js";
 import {
-  collectYouTubeBackfillItems,
+  collectYouTubeBackfillItemBatches,
   resolveYouTubeBackfillUrls
 } from "./backfill/youtube.js";
 import {
@@ -57,18 +57,30 @@ async function backfillYouTubeFeed(
   for (const url of urls) {
     console.log(`Backfill crawling ${url.tab} ${url.url}`);
 
-    const items = await collectYouTubeBackfillItems(url.url, url.tab, feed.id, timeoutMs);
-    console.log(`Backfill yt-dlp parsed: tab=${url.tab} items=${items.length}`);
+    const summary = await collectYouTubeBackfillItemBatches(
+      url.url,
+      url.tab,
+      feed.id,
+      timeoutMs,
+      async (batch) => {
+        console.log(
+          `Backfill YouTube batch ready: tab=${url.tab} batch=${batch.batchNumber} items=${batch.items.length} parsed=${batch.parsedCount} normalized=${batch.normalizedCount} skipped=${batch.skippedCount}`
+        );
 
-    discoveredCount += items.length;
+        discoveredCount += batch.items.length;
 
-    for (const result of await insertItemsWithResults(pool, feed.id, items)) {
-      console.log(formatInsertDebugLine(result.item, result.inserted));
+        for (const result of await insertItemsWithResults(pool, feed.id, batch.items)) {
+          console.log(formatInsertDebugLine(result.item, result.inserted));
 
-      if (result.inserted) {
-        insertedCount += 1;
+          if (result.inserted) {
+            insertedCount += 1;
+          }
+        }
       }
-    }
+    );
+    console.log(
+      `Backfill yt-dlp parsed: tab=${url.tab} parsed=${summary.parsedCount} normalized=${summary.normalizedCount} skipped=${summary.skippedCount} batches=${summary.batchCount}`
+    );
   }
 
   return {
