@@ -913,6 +913,10 @@ function AdminRoute() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [folderTitle, setFolderTitle] = useState("");
+  const [selectedFolderId, setSelectedFolderId] = useState("");
+  const [editFolderTitle, setEditFolderTitle] = useState("");
+  const [editFolderPosition, setEditFolderPosition] = useState("0");
+  const [folderDeleteConfirmation, setFolderDeleteConfirmation] = useState("");
   const [feedUrl, setFeedUrl] = useState("");
   const [feedTitle, setFeedTitle] = useState("");
   const [siteUrl, setSiteUrl] = useState("");
@@ -925,17 +929,38 @@ function AdminRoute() {
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [isSubmittingFolder, setIsSubmittingFolder] = useState(false);
   const [isSubmittingFeed, setIsSubmittingFeed] = useState(false);
+  const [isSavingFolder, setIsSavingFolder] = useState(false);
+  const [isDeletingFolder, setIsDeletingFolder] = useState(false);
   const [isSavingFeed, setIsSavingFeed] = useState(false);
   const [isDeletingFeed, setIsDeletingFeed] = useState(false);
   const [opmlText, setOpmlText] = useState("");
   const [isImportingOpml, setIsImportingOpml] = useState(false);
   const [isExportingOpml, setIsExportingOpml] = useState(false);
   const [opmlResult, setOpmlResult] = useState<OpmlImportResponse | null>(null);
+  const selectedFolder = folders.find((folder) => folder.id === selectedFolderId) ?? null;
   const selectedFeed = feeds.find((feed) => feed.id === selectedFeedId) ?? null;
 
   useEffect(() => {
     void loadAdminState();
   }, []);
+
+  useEffect(() => {
+    if (folders.length === 0) {
+      applyFolderEditor(null);
+      return;
+    }
+
+    if (!selectedFolderId) {
+      applyFolderEditor(folders[0] ?? null);
+      return;
+    }
+
+    const nextSelectedFolder = folders.find((folder) => folder.id === selectedFolderId);
+
+    if (!nextSelectedFolder) {
+      applyFolderEditor(folders[0] ?? null);
+    }
+  }, [folders, selectedFolderId]);
 
   useEffect(() => {
     if (feeds.length === 0) {
@@ -954,6 +979,13 @@ function AdminRoute() {
       applyFeedEditor(feeds[0] ?? null);
     }
   }, [feeds, selectedFeedId]);
+
+  function applyFolderEditor(folder: Folder | null): void {
+    setSelectedFolderId(folder?.id ?? "");
+    setEditFolderTitle(folder?.title ?? "");
+    setEditFolderPosition(String(folder?.position ?? 0));
+    setFolderDeleteConfirmation("");
+  }
 
   function applyFeedEditor(feed: Feed | null): void {
     setSelectedFeedId(feed?.id ?? "");
@@ -999,7 +1031,8 @@ function AdminRoute() {
         method: "POST"
       });
 
-      setFolders((current) => [...current, createdFolder]);
+      setFolders((current) => sortFolders([...current, createdFolder]));
+      applyFolderEditor(createdFolder);
       setFolderTitle("");
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
@@ -1034,6 +1067,64 @@ function AdminRoute() {
       setErrorMessage(getErrorMessage(error));
     } finally {
       setIsSubmittingFeed(false);
+    }
+  }
+
+  async function handleUpdateFolder(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+
+    if (!selectedFolder) {
+      return;
+    }
+
+    setIsSavingFolder(true);
+    setErrorMessage(null);
+
+    try {
+      const updatedFolder = await apiRequest<Folder>(`/folders/${selectedFolder.id}`, {
+        body: JSON.stringify({
+          position: Number.parseInt(editFolderPosition, 10),
+          title: editFolderTitle.trim()
+        }),
+        method: "PATCH"
+      });
+
+      setFolders((current) =>
+        sortFolders(current.map((entry) => (entry.id === updatedFolder.id ? updatedFolder : entry)))
+      );
+      applyFolderEditor(updatedFolder);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsSavingFolder(false);
+    }
+  }
+
+  async function handleDeleteFolder(): Promise<void> {
+    if (!selectedFolder) {
+      return;
+    }
+
+    setIsDeletingFolder(true);
+    setErrorMessage(null);
+
+    try {
+      await apiRequest(`/folders/${selectedFolder.id}`, {
+        method: "DELETE"
+      });
+
+      setFolders((current) => current.filter((entry) => entry.id !== selectedFolder.id));
+      setFolderId((current) => (current === selectedFolder.id ? "" : current));
+      setEditFolderId((current) => (current === selectedFolder.id ? "" : current));
+      setFeeds((current) =>
+        current.map((entry) =>
+          entry.folderId === selectedFolder.id ? { ...entry, folderId: null } : entry
+        )
+      );
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsDeletingFolder(false);
     }
   }
 
@@ -1215,6 +1306,95 @@ function AdminRoute() {
             </button>
             <span className="hint-text">POST /folders</span>
           </div>
+        </form>
+
+        <form className="terminal-form" onSubmit={(event) => void handleUpdateFolder(event)}>
+          <p className="status-title">edit folder</p>
+          {selectedFolder ? (
+            <>
+              <label className="form-row">
+                <span>selected folder</span>
+                <select
+                  onChange={(event) => {
+                    const nextFolder =
+                      folders.find((folder) => folder.id === event.target.value) ?? null;
+                    applyFolderEditor(nextFolder);
+                  }}
+                  value={selectedFolderId}
+                >
+                  {folders.map((folder) => (
+                    <option key={folder.id} value={folder.id}>
+                      {folder.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-row">
+                <span>title</span>
+                <input
+                  onChange={(event) => setEditFolderTitle(event.target.value)}
+                  type="text"
+                  value={editFolderTitle}
+                />
+              </label>
+              <label className="form-row">
+                <span>position</span>
+                <input
+                  min="0"
+                  onChange={(event) => setEditFolderPosition(event.target.value)}
+                  type="number"
+                  value={editFolderPosition}
+                />
+              </label>
+              <label className="form-row">
+                <span>delete confirmation</span>
+                <input
+                  onChange={(event) => setFolderDeleteConfirmation(event.target.value)}
+                  placeholder={selectedFolder.title}
+                  type="text"
+                  value={folderDeleteConfirmation}
+                />
+              </label>
+              <div className="folder-impact-note">
+                feeds in folder:
+                {
+                  feeds.filter((feed) => feed.folderId === selectedFolder.id).length
+                }
+                . deleting the folder will leave those feeds unassigned.
+              </div>
+              <div className="form-actions">
+                <button
+                  disabled={
+                    isSavingFolder ||
+                    editFolderTitle.trim().length === 0 ||
+                    Number.isNaN(Number.parseInt(editFolderPosition, 10))
+                  }
+                  type="submit"
+                >
+                  {isSavingFolder ? "saving..." : "save folder"}
+                </button>
+                <button
+                  className="secondary-button"
+                  onClick={() => applyFolderEditor(selectedFolder)}
+                  type="button"
+                >
+                  reset
+                </button>
+                <button
+                  disabled={
+                    isDeletingFolder ||
+                    folderDeleteConfirmation.trim() !== selectedFolder.title
+                  }
+                  onClick={() => void handleDeleteFolder()}
+                  type="button"
+                >
+                  {isDeletingFolder ? "deleting..." : "delete folder"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="section-copy">No folders available to edit.</p>
+          )}
         </form>
 
         <form className="terminal-form" onSubmit={(event) => void handleCreateFeed(event)}>
@@ -1423,6 +1603,7 @@ function AdminRoute() {
           <span>folder</span>
           <span>position</span>
           <span>created</span>
+          <span>actions</span>
         </div>
         {folders.length === 0 ? (
           <div className="table-row table-row-empty">
@@ -1434,6 +1615,11 @@ function AdminRoute() {
               <span>{folder.title}</span>
               <span>{folder.position}</span>
               <span>{formatTimestamp(folder.createdAt)}</span>
+              <span className="table-actions">
+                <button onClick={() => applyFolderEditor(folder)} type="button">
+                  edit
+                </button>
+              </span>
             </div>
           ))
         )}
@@ -1628,6 +1814,16 @@ function findFolderTitle(folders: Folder[], folderId: string | null): string {
   }
 
   return folders.find((folder) => folder.id === folderId)?.title ?? "unknown";
+}
+
+function sortFolders(folders: Folder[]): Folder[] {
+  return [...folders].sort((left, right) => {
+    if (left.position !== right.position) {
+      return left.position - right.position;
+    }
+
+    return left.createdAt.localeCompare(right.createdAt);
+  });
 }
 
 function formatTimestamp(value: string): string {

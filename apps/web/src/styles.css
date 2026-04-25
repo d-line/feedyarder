@@ -469,6 +469,13 @@ button:disabled {
   font-size: 0.85rem;
 }
 
+.folder-impact-note {
+  margin-bottom: 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
 .admin-grid-wide .terminal-form {
   max-width: none;
 }

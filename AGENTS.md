@@ -71,6 +71,9 @@ If the project direction changes, this file must be updated to reflect the new a
 - Duplicate feeds during OPML import are skipped silently.
 - OPML export should preserve the current folder structure and include disabled feeds.
 - Manual feed controls needed in admin for v1:
+  - add folder
+  - edit folder
+  - delete folder
   - add feed
   - edit feed
   - delete feed

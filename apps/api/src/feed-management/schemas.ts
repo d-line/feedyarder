@@ -5,6 +5,15 @@ export const createFolderRequestSchema = z.object({
   title: z.string().trim().min(1).max(128)
 });
 
+export const updateFolderRequestSchema = z
+  .object({
+    position: z.number().int().nonnegative().optional(),
+    title: z.string().trim().min(1).max(128).optional()
+  })
+  .refine((value) => value.position !== undefined || value.title !== undefined, {
+    message: "At least one folder field must be provided."
+  });
+
 export const createFeedRequestSchema = z.object({
   feedUrl: z.string().url(),
   folderId: z.string().uuid().nullable().optional(),

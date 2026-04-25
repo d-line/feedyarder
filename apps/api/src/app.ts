@@ -18,17 +18,20 @@ import { getPool } from "./db/pool.js";
 import {
   createFeed,
   createFolder,
+  deleteFolder,
   deleteFeed,
   listFetchEvents,
   listFeeds,
   listFolders,
   retryFeedNow,
+  updateFolder,
   updateFeed
 } from "./feed-management/repository.js";
 import {
   createFeedRequestSchema,
   createFolderRequestSchema,
   listFetchEventsQuerySchema,
+  updateFolderRequestSchema,
   updateFeedRequestSchema
 } from "./feed-management/schemas.js";
 import { listItems, updateItemState } from "./item-management/repository.js";
@@ -226,6 +229,55 @@ export function createApp(config: AppConfig) {
           title: payload.title
         })
       );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/folders/:id", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      const { id } = request.params;
+      const payload = updateFolderRequestSchema.parse(request.body);
+      const updateInput: Parameters<typeof updateFolder>[2] = {};
+
+      if (typeof payload.title === "string") {
+        updateInput.title = payload.title;
+      }
+
+      if (typeof payload.position === "number") {
+        updateInput.position = payload.position;
+      }
+
+      const folder = await updateFolder(pool, id, updateInput);
+
+      if (!folder) {
+        return sendError(response, 404, "folder_not_found", "Folder was not found.");
+      }
+
+      return response.json(folder);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/folders/:id", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      const { id } = request.params;
+      const deleted = await deleteFolder(pool, id);
+
+      if (!deleted) {
+        return sendError(response, 404, "folder_not_found", "Folder was not found.");
+      }
+
+      return response.status(204).send();
     } catch (error) {
       next(error);
     }

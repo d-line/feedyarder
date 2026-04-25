@@ -157,6 +157,49 @@ export async function createFolder(
   return mapFolder(row);
 }
 
+export async function updateFolder(
+  pool: Pool,
+  folderId: string,
+  input: {
+    position?: number;
+    title?: string;
+  }
+): Promise<FolderResponse | null> {
+  const result = await pool.query<FolderRecord>(
+    `
+      update folders
+      set
+        title = case when $2 then $3 else title end,
+        position = case when $4 then $5 else position end
+      where id = $1
+      returning id, title, position, created_at
+    `,
+    [
+      folderId,
+      input.title !== undefined,
+      input.title ?? null,
+      input.position !== undefined,
+      input.position ?? null
+    ]
+  );
+
+  const row = result.rows[0];
+  return row ? mapFolder(row) : null;
+}
+
+export async function deleteFolder(pool: Pool, folderId: string): Promise<boolean> {
+  const result = await pool.query<{ id: string }>(
+    `
+      delete from folders
+      where id = $1
+      returning id
+    `,
+    [folderId]
+  );
+
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function listFeeds(pool: Pool): Promise<FeedResponse[]> {
   const result = await pool.query<FeedRecord>(
     `
