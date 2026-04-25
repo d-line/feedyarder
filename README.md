@@ -133,3 +133,9 @@ Large YouTube channels can take hours. YouTube backfill has no yt-dlp timeout by
 ```bash
 YT_DLP_TIMEOUT_MS=7200000 npm run backfill -- <feed-id>
 ```
+
+YouTube items are inserted as yt-dlp streams them. The default insert batch size is 100 items:
+
+```bash
+YT_DLP_BATCH_SIZE=250 npm run backfill -- <feed-id>
+```
