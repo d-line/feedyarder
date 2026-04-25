@@ -5,6 +5,7 @@ import type { WorkerConfig } from "./config.js";
 import type { FetchCycleSummaryItem } from "./fetch/types.js";
 
 const TELEGRAM_MAX_MESSAGE_LENGTH = 3_500;
+const TELEGRAM_MAX_DETAIL_LINES = 120;
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 
 interface TelegramSendMessageResponse {
@@ -31,13 +32,26 @@ export function buildFetchCycleMessages(
     (total, item) => total + (item.missingPublishedAtCount ?? 0),
     0
   );
-  const header = [
+  const networkErrorCount = summaryItems.filter(
+    (item) => item.status === "error" && item.errorCategory === "network"
+  ).length;
+  const parseErrorCount = summaryItems.filter(
+    (item) => item.status === "error" && item.errorCategory === "parse"
+  ).length;
+  const grouped = buildGroupedDetailLines(summaryItems, TELEGRAM_MAX_DETAIL_LINES);
+  const lines = [
     `Feedyarder fetch cycle @ ${sentAt.toISOString()}`,
-    `feeds=${summaryItems.length} success=${successCount} unchanged=${notModifiedCount} errors=${errorCount} missing_pubdate=${missingPublishedAtCount}`
-  ].join("\n");
-  const lines = summaryItems.map((item) => formatSummaryLine(item));
+    `feeds=${summaryItems.length} success=${successCount} unchanged=${notModifiedCount} errors=${errorCount} missing_pubdate=${missingPublishedAtCount}`,
+    `error_breakdown network=${networkErrorCount} parse=${parseErrorCount}`,
+    `detail_limit=${TELEGRAM_MAX_DETAIL_LINES}`,
+    ...grouped.lines
+  ];
 
-  return chunkMessages(header, lines);
+  if (grouped.omittedCount > 0) {
+    lines.push(`+${grouped.omittedCount} more events omitted`);
+  }
+
+  return chunkMessageLines(lines);
 }
 
 export async function sendFetchCycleSummary(
@@ -105,39 +119,102 @@ async function sendTelegramMessage(input: SendTelegramMessageInput): Promise<voi
   }
 }
 
-function chunkMessages(header: string, lines: string[]): string[] {
-  if (lines.length === 0) {
-    return [header];
-  }
-
+function chunkMessageLines(lines: string[]): string[] {
   const messages: string[] = [];
-  let currentMessage = header;
+  let currentLines: string[] = [];
 
   for (const line of lines) {
-    const safeLine = line.slice(0, TELEGRAM_MAX_MESSAGE_LENGTH - 64);
-    const nextMessage =
-      currentMessage.length > 0 ? `${currentMessage}\n${safeLine}` : safeLine;
+    const safeLine = line.slice(0, TELEGRAM_MAX_MESSAGE_LENGTH - 128);
+    const nextLines = currentLines.length > 0 ? [...currentLines, safeLine] : [safeLine];
+    const nextMessage = nextLines.join("\n");
 
-    if (nextMessage.length > TELEGRAM_MAX_MESSAGE_LENGTH) {
-      messages.push(currentMessage);
-      currentMessage = `Feedyarder fetch cycle (cont)\n${safeLine}`;
+    if (nextMessage.length <= TELEGRAM_MAX_MESSAGE_LENGTH) {
+      currentLines = nextLines;
       continue;
     }
 
-    currentMessage = nextMessage;
+    if (currentLines.length > 0) {
+      messages.push(currentLines.join("\n"));
+      currentLines = [`Feedyarder fetch cycle (cont)`, safeLine];
+      continue;
+    }
+
+    messages.push(safeLine.slice(0, TELEGRAM_MAX_MESSAGE_LENGTH));
   }
 
-  if (currentMessage.length > 0) {
-    messages.push(currentMessage);
+  if (currentLines.length > 0) {
+    messages.push(currentLines.join("\n"));
   }
 
   return messages;
 }
 
+function buildGroupedDetailLines(
+  summaryItems: FetchCycleSummaryItem[],
+  maxDetailLines: number
+): { lines: string[]; omittedCount: number } {
+  const sections = [
+    {
+      items: summaryItems.filter(
+        (item) => item.status === "error" && item.errorCategory === "network"
+      ),
+      title: "error/network"
+    },
+    {
+      items: summaryItems.filter(
+        (item) => item.status === "error" && item.errorCategory === "parse"
+      ),
+      title: "error/parse"
+    },
+    {
+      items: summaryItems.filter((item) => item.status === "error" && !item.errorCategory),
+      title: "error/other"
+    },
+    {
+      items: summaryItems.filter((item) => item.status === "not_modified"),
+      title: "not_modified"
+    },
+    {
+      items: summaryItems.filter((item) => item.status === "success"),
+      title: "success"
+    }
+  ];
+
+  const lines: string[] = [];
+  let includedCount = 0;
+
+  for (const section of sections) {
+    if (section.items.length === 0) {
+      continue;
+    }
+
+    if (includedCount >= maxDetailLines) {
+      break;
+    }
+
+    lines.push(`${section.title} (${section.items.length})`);
+
+    for (const item of section.items) {
+      if (includedCount >= maxDetailLines) {
+        break;
+      }
+
+      lines.push(`- ${formatSummaryLine(item)}`);
+      includedCount += 1;
+    }
+  }
+
+  return {
+    lines,
+    omittedCount: Math.max(0, summaryItems.length - includedCount)
+  };
+}
+
 function formatSummaryLine(item: FetchCycleSummaryItem): string {
-  const feedLabel = truncateText(item.feedUrl, 120);
-  const statusPart = item.status;
-  const categoryPart = item.errorCategory ? `/${item.errorCategory}` : "";
+  const feedTitle = item.feedTitle?.trim();
+  const feedLabel = feedTitle
+    ? `${truncateText(feedTitle, 80)} <${truncateText(item.feedUrl, 100)}>`
+    : truncateText(item.feedUrl, 120);
   const missingPublishedAtPart =
     item.missingPublishedAtCount && item.missingPublishedAtCount > 0
       ? ` missing_pubdate=${item.missingPublishedAtCount}`
@@ -146,7 +223,7 @@ function formatSummaryLine(item: FetchCycleSummaryItem): string {
     ? ` message=${truncateText(item.errorMessage.replace(/\s+/g, " "), 180)}`
     : "";
 
-  return `${statusPart}${categoryPart} ${feedLabel}${missingPublishedAtPart}${messagePart}`;
+  return `${feedLabel}${missingPublishedAtPart}${messagePart}`;
 }
 
 function truncateText(value: string, maxLength: number): string {

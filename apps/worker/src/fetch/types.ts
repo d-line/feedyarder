@@ -14,6 +14,7 @@ export interface DueFeed {
 export interface FetchCycleSummaryItem {
   feedId: string;
   feedUrl: string;
+  feedTitle?: string;
   status: FetchStatus;
   errorCategory?: FetchErrorCategory;
   errorMessage?: string;

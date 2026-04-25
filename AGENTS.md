@@ -141,6 +141,10 @@ If the project direction changes, this file must be updated to reflect the new a
   - parsing errors
 - Repeated identical failures do not need deduplication inside the summaries.
 - Missing `published_at` should also be surfaced in summaries.
+- Telegram summary formatting should be operator-friendly:
+  - grouped by status/error category (for example `error/network`, `error/parse`, `not_modified`)
+  - include feed title when available, fallback to feed URL
+  - cap detail lines per cycle and include a `+N more` tail when truncated
 
 ## API and Contract Strategy
 

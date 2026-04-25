@@ -36,6 +36,11 @@ export async function runWorkerCycle(
       feedUrl: result.feed.feedUrl,
       status: result.outcome.status
     };
+    const resolvedFeedTitle = result.outcome.feedTitle ?? result.feed.title ?? null;
+
+    if (resolvedFeedTitle) {
+      summaryItem.feedTitle = resolvedFeedTitle;
+    }
 
     if (result.outcome.errorCategory) {
       summaryItem.errorCategory = result.outcome.errorCategory;
