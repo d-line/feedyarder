@@ -1,6 +1,6 @@
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import DOMPurify from "dompurify";
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { sanitizeFeedHtml } from "./sanitize-feed-html.js";
 
 interface User {
   id: string;
@@ -420,6 +420,7 @@ function ReaderRoute() {
     starredOnly: false
   });
   const itemRefs = useRef<Record<string, HTMLElement | null>>({});
+  const lastCollapsedButtonRef = useRef<HTMLButtonElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -441,6 +442,37 @@ function ReaderRoute() {
       setExpandedItemId(null);
     }
   }, [activeItemId, expandedItemId, items]);
+
+  useEffect(() => {
+    if (!nextCursor || isLoadingMore || isLoading || items.length === 0) {
+      return;
+    }
+
+    const target = lastCollapsedButtonRef.current;
+
+    if (!target || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0]?.isIntersecting) {
+          return;
+        }
+
+        void loadReaderState(false);
+      },
+      {
+        threshold: 0.01
+      }
+    );
+
+    observer.observe(target);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [isLoading, isLoadingMore, items, nextCursor]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
@@ -822,6 +854,7 @@ function ReaderRoute() {
         {items.map((item) => {
           const isExpanded = expandedItemId === item.id;
           const isActive = item.id === activeItemId;
+          const isLastItem = item.id === (items[items.length - 1]?.id ?? "");
 
           return (
             <article
@@ -842,6 +875,7 @@ function ReaderRoute() {
               <button
                 className="story-collapsed story-collapsed-button"
                 onClick={() => handleToggleExpanded(item.id)}
+                ref={isLastItem ? lastCollapsedButtonRef : undefined}
                 type="button"
               >
                 <span className="story-active-marker">{isActive ? ">" : " "}</span>
@@ -1824,27 +1858,6 @@ function sortFolders(folders: Folder[]): Folder[] {
     }
 
     return left.createdAt.localeCompare(right.createdAt);
-  });
-}
-
-function sanitizeFeedHtml(html: string): string {
-  return DOMPurify.sanitize(html, {
-    FORBID_ATTR: ["onerror", "onload", "style"],
-    FORBID_TAGS: [
-      "base",
-      "embed",
-      "form",
-      "iframe",
-      "input",
-      "link",
-      "meta",
-      "object",
-      "script",
-      "style"
-    ],
-    USE_PROFILES: {
-      html: true
-    }
   });
 }
 

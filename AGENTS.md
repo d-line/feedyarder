@@ -42,6 +42,7 @@ If the project direction changes, this file must be updated to reflect the new a
 - When navigating between stories, an open story should transfer its expanded state to the next or previous selected story.
 - Reader keyboard shortcuts for v1:
   - `j` / `ArrowDown` moves to the next story
+  - next page should auto-load when the last collapsed story row enters the viewport (not only when keyboard navigation reaches the loaded end)
   - `k` / `ArrowUp` moves to the previous story
   - `Enter` / `o` toggles expansion on the selected story
   - `m` toggles read/unread on the selected story
