@@ -1,0 +1,22 @@
+{
+  "name": "@feedyarder/contracts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "files": [
+    "openapi",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "eslint": "^9.25.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.0"
+  }
+}
