@@ -162,9 +162,11 @@ describe("buildYtDlpArgs", () => {
 
     try {
       expect(buildYtDlpArgs("https://www.youtube.com/@example/videos")).toEqual([
+        "--ignore-config",
         "--skip-download",
         "--dump-json",
         "--ignore-errors",
+        "--ignore-no-formats-error",
         "--no-warnings",
         "--no-progress",
         "--cookies",
