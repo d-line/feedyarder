@@ -29,6 +29,7 @@ Create or update `.env` with at least:
 
 - `WEB_ORIGIN` (for API CORS, for example `http://localhost:3000`)
 - `VITE_API_BASE_URL` (baked into web build, for example `http://localhost:3001`)
+- `SESSION_COOKIE_SECURE` (`false` for plain HTTP/local Docker, `true` when behind HTTPS)
 - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (optional, for notifications)
 - Optional DB overrides: `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
 

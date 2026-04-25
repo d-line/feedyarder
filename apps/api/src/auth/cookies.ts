@@ -26,7 +26,7 @@ export function setSessionCookie(
       maxAge: config.SESSION_MAX_AGE_DAYS * 24 * 60 * 60,
       path: "/",
       sameSite: "lax",
-      secure: config.NODE_ENV === "production"
+      secure: config.SESSION_COOKIE_SECURE
     })
   );
 }
@@ -42,7 +42,7 @@ export function clearSessionCookie(
       maxAge: 0,
       path: "/",
       sameSite: "lax",
-      secure: config.NODE_ENV === "production"
+      secure: config.SESSION_COOKIE_SECURE
     })
   );
 }
