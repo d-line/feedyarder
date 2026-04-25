@@ -46,6 +46,7 @@ services:
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-feedyarder_session}
       SESSION_MAX_AGE_DAYS: ${SESSION_MAX_AGE_DAYS:-30}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
     ports:
       - "3001:3001"
     depends_on:
