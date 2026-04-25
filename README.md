@@ -127,3 +127,9 @@ If yt-dlp needs external JavaScript components, allow them explicitly:
 ```bash
 YT_DLP_REMOTE_COMPONENTS=ejs:npm npm run backfill -- <feed-id>
 ```
+
+Large YouTube channels can take hours. YouTube backfill has no yt-dlp timeout by default; set one in milliseconds only when you want a cap:
+
+```bash
+YT_DLP_TIMEOUT_MS=7200000 npm run backfill -- <feed-id>
+```
