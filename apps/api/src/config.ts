@@ -17,6 +17,7 @@ const envSchema = z.object({
   API_PORT: z.coerce.number().int().positive().default(3001),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  WEB_ORIGIN: z.string().url().default("http://localhost:3000"),
   SESSION_COOKIE_NAME: z.string().default("feedyarder_session"),
   SESSION_MAX_AGE_DAYS: z.coerce.number().int().positive().default(30)
 });

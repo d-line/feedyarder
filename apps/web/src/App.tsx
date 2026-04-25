@@ -1,4 +1,49 @@
-import { NavLink, Route, Routes } from "react-router-dom";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+
+interface User {
+  id: string;
+  username: string;
+  createdAt: string;
+}
+
+interface Folder {
+  id: string;
+  title: string;
+  position: number;
+  createdAt: string;
+}
+
+interface Feed {
+  id: string;
+  folderId: string | null;
+  title: string | null;
+  siteUrl: string | null;
+  feedUrl: string;
+  faviconUrl: string | null;
+  status: string;
+  isPaused: boolean;
+  fetchIntervalMinutes: number;
+  consecutiveErrorCount: number;
+  lastSuccessAt: string | null;
+  lastErrorAt: string | null;
+  lastErrorCategory: string | null;
+  createdAt: string;
+}
+
+interface ApiErrorResponse {
+  error?: {
+    code?: string;
+    message?: string;
+  };
+}
+
+interface AppBootstrapState {
+  isLoading: boolean;
+  setupCompleted: boolean;
+  user: User | null;
+  errorMessage: string | null;
+}
 
 const sampleItems = [
   {
@@ -37,33 +82,6 @@ const sampleItems = [
   }
 ];
 
-const sampleFeeds = [
-  {
-    id: "f-001",
-    title: "planet.postgres",
-    folder: "databases",
-    status: "ok",
-    interval: "60m",
-    errors: 0
-  },
-  {
-    id: "f-002",
-    title: "broken.example/rss.xml",
-    folder: "watchlist",
-    status: "parse",
-    interval: "240m",
-    errors: 7
-  },
-  {
-    id: "f-003",
-    title: "slow-news-feed",
-    folder: "general",
-    status: "network",
-    interval: "120m",
-    errors: 2
-  }
-];
-
 const navItems = [
   {
     to: "/setup",
@@ -79,7 +97,91 @@ const navItems = [
   }
 ];
 
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001";
+
 export function App() {
+  const [state, setState] = useState<AppBootstrapState>({
+    isLoading: true,
+    setupCompleted: false,
+    user: null,
+    errorMessage: null
+  });
+
+  useEffect(() => {
+    void loadBootstrapState();
+  }, []);
+
+  async function loadBootstrapState(): Promise<void> {
+    try {
+      setState((current) => ({
+        ...current,
+        isLoading: true,
+        errorMessage: null
+      }));
+
+      const setupStatus = await apiRequest<{ setupCompleted: boolean }>("/setup/status");
+      const user = await fetchCurrentUser();
+
+      setState({
+        isLoading: false,
+        setupCompleted: setupStatus.setupCompleted,
+        user,
+        errorMessage: null
+      });
+    } catch (error) {
+      setState({
+        isLoading: false,
+        setupCompleted: false,
+        user: null,
+        errorMessage: getErrorMessage(error)
+      });
+    }
+  }
+
+  async function handleSetup(username: string, password: string): Promise<void> {
+    const user = await apiRequest<User>("/setup", {
+      body: JSON.stringify({ password, username }),
+      method: "POST"
+    });
+
+    setState({
+      errorMessage: null,
+      isLoading: false,
+      setupCompleted: true,
+      user
+    });
+  }
+
+  async function handleLogin(username: string, password: string): Promise<void> {
+    const user = await apiRequest<User>("/session", {
+      body: JSON.stringify({ password, username }),
+      method: "POST"
+    });
+
+    setState((current) => ({
+      ...current,
+      errorMessage: null,
+      user
+    }));
+  }
+
+  async function handleLogout(): Promise<void> {
+    await apiRequest("/session", {
+      method: "DELETE"
+    });
+
+    setState((current) => ({
+      ...current,
+      user: null
+    }));
+  }
+
+  const statusMode = state.user
+    ? "authenticated"
+    : state.setupCompleted
+      ? "login"
+      : "bootstrap";
+
   return (
     <div className="terminal-shell">
       <aside className="chrome-panel">
@@ -108,67 +210,211 @@ export function App() {
           <dl className="status-list">
             <div>
               <dt>mode</dt>
-              <dd>bootstrap</dd>
+              <dd>{statusMode}</dd>
+            </div>
+            <div>
+              <dt>user</dt>
+              <dd>{state.user?.username ?? "anonymous"}</dd>
             </div>
             <div>
               <dt>api</dt>
-              <dd>public-only</dd>
-            </div>
-            <div>
-              <dt>ui</dt>
-              <dd>tui-style</dd>
+              <dd>{apiBaseUrl}</dd>
             </div>
           </dl>
+
+          {state.user ? (
+            <button className="logout-button" onClick={() => void handleLogout()} type="button">
+              logout
+            </button>
+          ) : null}
         </section>
       </aside>
 
       <main className="screen-panel">
         <header className="screen-header">
-          <p className="screen-header-line">[reader shell initialized]</p>
+          <p className="screen-header-line">
+            {state.isLoading ? "[loading session state]" : "[session state loaded]"}
+          </p>
           <p className="screen-header-line">
             routes: <span>/setup</span> <span>/reader</span> <span>/admin</span>
           </p>
         </header>
 
         <Routes>
-          <Route path="/" element={<SetupRoute />} />
-          <Route path="/setup" element={<SetupRoute />} />
-          <Route path="/reader" element={<ReaderRoute />} />
-          <Route path="/admin" element={<AdminRoute />} />
+          <Route
+            path="/"
+            element={<Navigate replace to={state.user ? "/reader" : "/setup"} />}
+          />
+          <Route
+            path="/setup"
+            element={
+              <SetupRoute
+                errorMessage={state.errorMessage}
+                isLoading={state.isLoading}
+                onLogin={handleLogin}
+                onRefresh={loadBootstrapState}
+                onSetup={handleSetup}
+                setupCompleted={state.setupCompleted}
+                user={state.user}
+              />
+            }
+          />
+          <Route
+            path="/reader"
+            element={
+              <ProtectedRoute
+                isLoading={state.isLoading}
+                user={state.user}
+                view={<ReaderRoute />}
+              />
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute
+                isLoading={state.isLoading}
+                user={state.user}
+                view={<AdminRoute />}
+              />
+            }
+          />
         </Routes>
       </main>
     </div>
   );
 }
 
-function SetupRoute() {
+function SetupRoute(props: {
+  errorMessage: string | null;
+  isLoading: boolean;
+  onLogin: (username: string, password: string) => Promise<void>;
+  onRefresh: () => Promise<void>;
+  onSetup: (username: string, password: string) => Promise<void>;
+  setupCompleted: boolean;
+  user: User | null;
+}) {
+  const navigate = useNavigate();
+  const [username, setUsername] = useState("operator");
+  const [password, setPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [localErrorMessage, setLocalErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (props.user) {
+      void navigate("/reader", {
+        replace: true
+      });
+    }
+  }, [navigate, props.user]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setLocalErrorMessage(null);
+
+    try {
+      if (props.setupCompleted) {
+        await props.onLogin(username, password);
+      } else {
+        await props.onSetup(username, password);
+      }
+
+      void navigate("/reader", {
+        replace: true
+      });
+    } catch (error) {
+      setLocalErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <section className="screen-content">
       <header className="section-header">
-        <p className="section-kicker">$ bootstrap</p>
-        <h1>create the only local user</h1>
+        <p className="section-kicker">
+          {props.setupCompleted ? "$ login" : "$ bootstrap"}
+        </p>
+        <h1>
+          {props.setupCompleted ? "authenticate local operator" : "create the only local user"}
+        </h1>
         <p className="section-copy">
-          This is the first-run setup surface. It stays small: username,
-          password, submit, then the app moves to authenticated mode.
+          {props.setupCompleted
+            ? "Bootstrap is complete. This screen now acts as the login surface."
+            : "First-run setup creates the only local account and immediately opens a session."}
         </p>
       </header>
 
-      <form className="terminal-form">
+      <form className="terminal-form" onSubmit={(event) => void handleSubmit(event)}>
         <label className="form-row">
           <span>username</span>
-          <input defaultValue="operator" name="username" type="text" />
+          <input
+            autoComplete="username"
+            name="username"
+            onChange={(event) => setUsername(event.target.value)}
+            type="text"
+            value={username}
+          />
         </label>
         <label className="form-row">
           <span>password</span>
-          <input name="password" type="password" value="••••••••••••••••" readOnly />
+          <input
+            autoComplete={props.setupCompleted ? "current-password" : "new-password"}
+            name="password"
+            onChange={(event) => setPassword(event.target.value)}
+            type="password"
+            value={password}
+          />
         </label>
         <div className="form-actions">
-          <button type="button">run setup</button>
-          <span className="hint-text">POST /setup</span>
+          <button disabled={isSubmitting || props.isLoading} type="submit">
+            {isSubmitting
+              ? "working..."
+              : props.setupCompleted
+                ? "log in"
+                : "run setup"}
+          </button>
+          <button
+            className="secondary-button"
+            disabled={isSubmitting}
+            onClick={() => void props.onRefresh()}
+            type="button"
+          >
+            refresh status
+          </button>
+          <span className="hint-text">
+            {props.setupCompleted ? "POST /session" : "POST /setup"}
+          </span>
         </div>
+        {localErrorMessage || props.errorMessage ? (
+          <p className="form-error">{localErrorMessage ?? props.errorMessage}</p>
+        ) : null}
       </form>
     </section>
   );
+}
+
+function ProtectedRoute(props: {
+  isLoading: boolean;
+  user: User | null;
+  view: ReactNode;
+}) {
+  const location = useLocation();
+
+  if (props.isLoading) {
+    return (
+      <section className="screen-content">
+        <p className="section-copy">Loading session state...</p>
+      </section>
+    );
+  }
+
+  if (!props.user) {
+    return <Navigate replace state={{ from: location.pathname }} to="/setup" />;
+  }
+
+  return <>{props.view}</>;
 }
 
 function ReaderRoute() {
@@ -239,28 +485,193 @@ function ReaderRoute() {
 }
 
 function AdminRoute() {
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [feeds, setFeeds] = useState<Feed[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [folderTitle, setFolderTitle] = useState("");
+  const [feedUrl, setFeedUrl] = useState("");
+  const [feedTitle, setFeedTitle] = useState("");
+  const [siteUrl, setSiteUrl] = useState("");
+  const [folderId, setFolderId] = useState("");
+  const [isSubmittingFolder, setIsSubmittingFolder] = useState(false);
+  const [isSubmittingFeed, setIsSubmittingFeed] = useState(false);
+
+  useEffect(() => {
+    void loadAdminState();
+  }, []);
+
+  async function loadAdminState(): Promise<void> {
+    try {
+      setIsLoading(true);
+      setErrorMessage(null);
+
+      const [foldersResponse, feedsResponse] = await Promise.all([
+        apiRequest<Folder[]>("/folders"),
+        apiRequest<Feed[]>("/feeds")
+      ]);
+
+      setFolders(foldersResponse);
+      setFeeds(feedsResponse);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleCreateFolder(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setIsSubmittingFolder(true);
+    setErrorMessage(null);
+
+    try {
+      const createdFolder = await apiRequest<Folder>("/folders", {
+        body: JSON.stringify({
+          position: folders.length,
+          title: folderTitle
+        }),
+        method: "POST"
+      });
+
+      setFolders((current) => [...current, createdFolder]);
+      setFolderTitle("");
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsSubmittingFolder(false);
+    }
+  }
+
+  async function handleCreateFeed(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setIsSubmittingFeed(true);
+    setErrorMessage(null);
+
+    try {
+      const createdFeed = await apiRequest<Feed>("/feeds", {
+        body: JSON.stringify({
+          feedUrl,
+          folderId: folderId || null,
+          siteUrl: siteUrl || null,
+          title: feedTitle || null
+        }),
+        method: "POST"
+      });
+
+      setFeeds((current) => [...current, createdFeed]);
+      setFeedUrl("");
+      setFeedTitle("");
+      setSiteUrl("");
+      setFolderId("");
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsSubmittingFeed(false);
+    }
+  }
+
   return (
     <section className="screen-content">
       <header className="section-header">
         <p className="section-kicker">$ admin</p>
         <h1>feed health and import controls</h1>
         <p className="section-copy">
-          This page handles feed CRUD, folder assignment, fetch status, and OPML
-          import/export without polluting the reader surface.
+          This page now talks to the real API for folders and feeds. Edit/delete,
+          OPML, and retry controls come next.
         </p>
       </header>
 
-      <div className="toolbar">
-        <button className="toolbar-button toolbar-button-active" type="button">
-          add feed
-        </button>
-        <button className="toolbar-button" type="button">
-          import opml
-        </button>
-        <button className="toolbar-button" type="button">
-          export opml
-        </button>
+      <div className="admin-grid">
+        <form className="terminal-form" onSubmit={(event) => void handleCreateFolder(event)}>
+          <p className="status-title">new folder</p>
+          <label className="form-row">
+            <span>title</span>
+            <input
+              onChange={(event) => setFolderTitle(event.target.value)}
+              type="text"
+              value={folderTitle}
+            />
+          </label>
+          <div className="form-actions">
+            <button disabled={isSubmittingFolder || folderTitle.trim().length === 0} type="submit">
+              {isSubmittingFolder ? "working..." : "create folder"}
+            </button>
+            <span className="hint-text">POST /folders</span>
+          </div>
+        </form>
+
+        <form className="terminal-form" onSubmit={(event) => void handleCreateFeed(event)}>
+          <p className="status-title">new feed</p>
+          <label className="form-row">
+            <span>feed url</span>
+            <input
+              onChange={(event) => setFeedUrl(event.target.value)}
+              type="url"
+              value={feedUrl}
+            />
+          </label>
+          <label className="form-row">
+            <span>title override</span>
+            <input
+              onChange={(event) => setFeedTitle(event.target.value)}
+              type="text"
+              value={feedTitle}
+            />
+          </label>
+          <label className="form-row">
+            <span>site url</span>
+            <input
+              onChange={(event) => setSiteUrl(event.target.value)}
+              type="url"
+              value={siteUrl}
+            />
+          </label>
+          <label className="form-row">
+            <span>folder</span>
+            <select onChange={(event) => setFolderId(event.target.value)} value={folderId}>
+              <option value="">none</option>
+              {folders.map((folder) => (
+                <option key={folder.id} value={folder.id}>
+                  {folder.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="form-actions">
+            <button disabled={isSubmittingFeed || feedUrl.trim().length === 0} type="submit">
+              {isSubmittingFeed ? "working..." : "create feed"}
+            </button>
+            <button className="secondary-button" onClick={() => void loadAdminState()} type="button">
+              refresh
+            </button>
+            <span className="hint-text">POST /feeds</span>
+          </div>
+        </form>
       </div>
+
+      {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
+
+      <section className="table-shell table-shell-tight" aria-label="Folders">
+        <div className="table-head">
+          <span>folder</span>
+          <span>position</span>
+          <span>created</span>
+        </div>
+        {folders.length === 0 ? (
+          <div className="table-row table-row-empty">
+            <span>no folders yet</span>
+          </div>
+        ) : (
+          folders.map((folder) => (
+            <div key={folder.id} className="table-row">
+              <span>{folder.title}</span>
+              <span>{folder.position}</span>
+              <span>{formatTimestamp(folder.createdAt)}</span>
+            </div>
+          ))
+        )}
+      </section>
 
       <section className="table-shell" aria-label="Feed health">
         <div className="table-head">
@@ -271,16 +682,113 @@ function AdminRoute() {
           <span>errors</span>
         </div>
 
-        {sampleFeeds.map((feed) => (
-          <div key={feed.id} className="table-row">
-            <span>{feed.title}</span>
-            <span>{feed.folder}</span>
-            <span className={`status-pill status-${feed.status}`}>{feed.status}</span>
-            <span>{feed.interval}</span>
-            <span>{feed.errors}</span>
+        {isLoading ? (
+          <div className="table-row table-row-empty">
+            <span>loading...</span>
           </div>
-        ))}
+        ) : feeds.length === 0 ? (
+          <div className="table-row table-row-empty">
+            <span>no feeds yet</span>
+          </div>
+        ) : (
+          feeds.map((feed) => (
+            <div key={feed.id} className="table-row">
+              <span>{feed.title ?? feed.feedUrl}</span>
+              <span>{findFolderTitle(folders, feed.folderId)}</span>
+              <span className={`status-pill status-${normalizeStatus(feed.status)}`}>
+                {feed.status}
+              </span>
+              <span>{feed.fetchIntervalMinutes}m</span>
+              <span>{feed.consecutiveErrorCount}</span>
+            </div>
+          ))
+        )}
       </section>
     </section>
   );
+}
+
+async function fetchCurrentUser(): Promise<User | null> {
+  try {
+    return await apiRequest<User>("/me");
+  } catch (error) {
+    if (isApiErrorCode(error, "not_authenticated")) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    credentials: "include",
+    ...init,
+    headers
+  });
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const text = await response.text();
+  const data = text.length > 0 ? (JSON.parse(text) as unknown) : undefined;
+
+  if (!response.ok) {
+    throw data;
+  }
+
+  return data as T;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "error" in error &&
+    typeof (error as ApiErrorResponse).error?.message === "string"
+  ) {
+    return (error as ApiErrorResponse).error?.message ?? "Unexpected API error.";
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "Unexpected error.";
+}
+
+function isApiErrorCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "error" in error &&
+    (error as ApiErrorResponse).error?.code === code
+  );
+}
+
+function findFolderTitle(folders: Folder[], folderId: string | null): string {
+  if (!folderId) {
+    return "none";
+  }
+
+  return folders.find((folder) => folder.id === folderId)?.title ?? "unknown";
+}
+
+function formatTimestamp(value: string): string {
+  return new Date(value).toLocaleString();
+}
+
+function normalizeStatus(status: string): "ok" | "parse" | "network" {
+  if (status === "parse" || status === "network") {
+    return status;
+  }
+
+  return "ok";
 }

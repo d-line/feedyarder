@@ -18,6 +18,16 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
   /setup:
+    get:
+      operationId: getSetupStatus
+      summary: Check whether bootstrap has already been completed
+      responses:
+        "200":
+          description: Current setup state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetupStatusResponse"
     post:
       operationId: createInitialUser
       summary: Bootstrap the single local user
@@ -98,6 +108,100 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /folders:
+    get:
+      operationId: listFolders
+      summary: List folders
+      responses:
+        "200":
+          description: Folder list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FolderResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createFolder
+      summary: Create a folder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFolderRequest"
+      responses:
+        "201":
+          description: Folder created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FolderResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /feeds:
+    get:
+      operationId: listFeeds
+      summary: List feeds
+      responses:
+        "200":
+          description: Feed list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FeedResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createFeed
+      summary: Create a feed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFeedRequest"
+      responses:
+        "201":
+          description: Feed created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     HealthResponse:
@@ -172,3 +276,136 @@ components:
               type: string
             message:
               type: string
+    SetupStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - setupCompleted
+      properties:
+        setupCompleted:
+          type: boolean
+    CreateFolderRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 128
+        position:
+          type: integer
+          minimum: 0
+    FolderResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - position
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        position:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+    CreateFeedRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - feedUrl
+      properties:
+        feedUrl:
+          type: string
+          format: uri
+        title:
+          type:
+            - string
+            - "null"
+          maxLength: 256
+        siteUrl:
+          type:
+            - string
+            - "null"
+          format: uri
+        folderId:
+          type:
+            - string
+            - "null"
+          format: uuid
+    FeedResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - folderId
+        - title
+        - siteUrl
+        - feedUrl
+        - faviconUrl
+        - status
+        - isPaused
+        - fetchIntervalMinutes
+        - consecutiveErrorCount
+        - lastSuccessAt
+        - lastErrorAt
+        - lastErrorCategory
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        folderId:
+          type:
+            - string
+            - "null"
+          format: uuid
+        title:
+          type:
+            - string
+            - "null"
+        siteUrl:
+          type:
+            - string
+            - "null"
+          format: uri
+        feedUrl:
+          type: string
+          format: uri
+        faviconUrl:
+          type:
+            - string
+            - "null"
+          format: uri
+        status:
+          type: string
+        isPaused:
+          type: boolean
+        fetchIntervalMinutes:
+          type: integer
+        consecutiveErrorCount:
+          type: integer
+        lastSuccessAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        lastErrorAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        lastErrorCategory:
+          type:
+            - string
+            - "null"
+        createdAt:
+          type: string
+          format: date-time

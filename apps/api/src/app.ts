@@ -1,19 +1,30 @@
+import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { ZodError } from "zod";
 
 import { clearSessionCookie, getSessionToken, setSessionCookie } from "./auth/cookies.js";
+import { readCurrentUser } from "./auth/current-user.js";
 import {
   createSession,
   createUser,
   deleteSessionByToken,
   findUserByUsername,
-  getCurrentUserBySessionToken,
   getUserCount
 } from "./auth/repository.js";
 import { hashPassword, verifyPassword } from "./auth/passwords.js";
 import { sessionRequestSchema, setupRequestSchema } from "./auth/schemas.js";
 import type { AppConfig } from "./config.js";
 import { getPool } from "./db/pool.js";
+import {
+  createFeed,
+  createFolder,
+  listFeeds,
+  listFolders
+} from "./feed-management/repository.js";
+import {
+  createFeedRequestSchema,
+  createFolderRequestSchema
+} from "./feed-management/schemas.js";
 
 interface ErrorResponse {
   error: {
@@ -40,7 +51,24 @@ export function createApp(config: AppConfig) {
   const app = express();
   const pool = getPool(config.DATABASE_URL);
 
+  app.use(
+    cors({
+      credentials: true,
+      origin: config.WEB_ORIGIN
+    })
+  );
   app.use(express.json());
+
+  async function requireUser(request: Request, response: Response): Promise<boolean> {
+    const user = await readCurrentUser(pool, request, config.SESSION_COOKIE_NAME);
+
+    if (!user) {
+      sendError(response, 401, "not_authenticated", "Authentication is required.");
+      return false;
+    }
+
+    return true;
+  }
 
   app.get("/health", async (_request, response, next) => {
     try {
@@ -79,6 +107,18 @@ export function createApp(config: AppConfig) {
       setSessionCookie(response, config, sessionToken);
 
       return response.status(201).json(user);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/setup/status", async (_request, response, next) => {
+    try {
+      const userCount = await getUserCount(pool);
+
+      return response.json({
+        setupCompleted: userCount > 0
+      });
     } catch (error) {
       next(error);
     }
@@ -136,16 +176,7 @@ export function createApp(config: AppConfig) {
 
   app.get("/me", async (request, response, next) => {
     try {
-      const sessionToken = getSessionToken(
-        request.headers.cookie,
-        config.SESSION_COOKIE_NAME
-      );
-
-      if (!sessionToken) {
-        return sendError(response, 401, "not_authenticated", "Authentication is required.");
-      }
-
-      const user = await getCurrentUserBySessionToken(pool, sessionToken);
+      const user = await readCurrentUser(pool, request, config.SESSION_COOKIE_NAME);
 
       if (!user) {
         clearSessionCookie(response, config);
@@ -154,6 +185,71 @@ export function createApp(config: AppConfig) {
       }
 
       return response.json(user);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/folders", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      return response.json(await listFolders(pool));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/folders", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      const payload = createFolderRequestSchema.parse(request.body);
+      const position = payload.position ?? 0;
+
+      return response.status(201).json(
+        await createFolder(pool, {
+          position,
+          title: payload.title
+        })
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/feeds", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      return response.json(await listFeeds(pool));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/feeds", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      const payload = createFeedRequestSchema.parse(request.body);
+
+      return response.status(201).json(
+        await createFeed(pool, {
+          feedUrl: payload.feedUrl,
+          folderId: payload.folderId ?? null,
+          siteUrl: payload.siteUrl ?? null,
+          title: payload.title ?? null
+        })
+      );
     } catch (error) {
       next(error);
     }
