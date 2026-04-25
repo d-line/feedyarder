@@ -335,9 +335,11 @@ function logYtDlpStderr(chunk: string): void {
 
 export function buildYtDlpArgs(url: string): string[] {
   const args = [
+    "--ignore-config",
     "--skip-download",
     "--dump-json",
     "--ignore-errors",
+    "--ignore-no-formats-error",
     "--no-warnings",
     "--no-progress",
     url
