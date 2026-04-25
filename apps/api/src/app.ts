@@ -25,6 +25,8 @@ import {
   createFeedRequestSchema,
   createFolderRequestSchema
 } from "./feed-management/schemas.js";
+import { listItems, updateItemState } from "./item-management/repository.js";
+import { listItemsQuerySchema, updateItemStateSchema } from "./item-management/schemas.js";
 
 interface ErrorResponse {
   error: {
@@ -75,8 +77,20 @@ export function createApp(config: AppConfig) {
       await pool.query("select 1");
 
       response.json({
-        service: "api",
-        ok: true
+        ok: true,
+        service: "api"
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/setup/status", async (_request, response, next) => {
+    try {
+      const userCount = await getUserCount(pool);
+
+      return response.json({
+        setupCompleted: userCount > 0
       });
     } catch (error) {
       next(error);
@@ -112,18 +126,6 @@ export function createApp(config: AppConfig) {
     }
   });
 
-  app.get("/setup/status", async (_request, response, next) => {
-    try {
-      const userCount = await getUserCount(pool);
-
-      return response.json({
-        setupCompleted: userCount > 0
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
   app.post("/session", async (request, response, next) => {
     try {
       const payload = sessionRequestSchema.parse(request.body);
@@ -147,9 +149,9 @@ export function createApp(config: AppConfig) {
       setSessionCookie(response, config, sessionToken);
 
       return response.json({
+        createdAt: user.created_at.toISOString(),
         id: user.id,
-        username: user.username,
-        createdAt: user.created_at.toISOString()
+        username: user.username
       });
     } catch (error) {
       next(error);
@@ -180,7 +182,6 @@ export function createApp(config: AppConfig) {
 
       if (!user) {
         clearSessionCookie(response, config);
-
         return sendError(response, 401, "not_authenticated", "Authentication is required.");
       }
 
@@ -209,11 +210,10 @@ export function createApp(config: AppConfig) {
       }
 
       const payload = createFolderRequestSchema.parse(request.body);
-      const position = payload.position ?? 0;
 
       return response.status(201).json(
         await createFolder(pool, {
-          position,
+          position: payload.position ?? 0,
           title: payload.title
         })
       );
@@ -250,6 +250,53 @@ export function createApp(config: AppConfig) {
           title: payload.title ?? null
         })
       );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/items", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      const query = listItemsQuerySchema.parse(request.query);
+
+      return response.json(
+        await listItems(pool, {
+          cursor: query.cursor ?? null,
+          feedId: query.feedId ?? null,
+          folderId: query.folderId ?? null,
+          limit: query.limit,
+          query: query.q ?? null,
+          read: query.read ?? null,
+          starred: query.starred ?? null
+        })
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/items/:id/state", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      const { id } = request.params;
+      const payload = updateItemStateSchema.parse(request.body);
+      const item = await updateItemState(pool, id, {
+        isRead: payload.isRead ?? null,
+        isStarred: payload.isStarred ?? null
+      });
+
+      if (!item) {
+        return sendError(response, 404, "item_not_found", "Item was not found.");
+      }
+
+      return response.json(item);
     } catch (error) {
       next(error);
     }

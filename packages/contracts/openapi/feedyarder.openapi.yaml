@@ -202,6 +202,98 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /items:
+    get:
+      operationId: listItems
+      summary: List items with cursor pagination and filters
+      parameters:
+        - in: query
+          name: cursor
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - in: query
+          name: feedId
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: folderId
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: read
+          schema:
+            type: boolean
+        - in: query
+          name: starred
+          schema:
+            type: boolean
+        - in: query
+          name: q
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Item page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemListResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /items/{id}/state:
+    patch:
+      operationId: updateItemState
+      summary: Update read/starred state for a single item
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateItemStateRequest"
+      responses:
+        "200":
+          description: Updated item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Item not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     HealthResponse:
@@ -409,3 +501,86 @@ components:
         createdAt:
           type: string
           format: date-time
+    ItemResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - feedId
+        - feedTitle
+        - title
+        - url
+        - author
+        - summaryText
+        - contentHtml
+        - publishedAt
+        - isRead
+        - isStarred
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        feedId:
+          type: string
+          format: uuid
+        feedTitle:
+          type:
+            - string
+            - "null"
+        title:
+          type:
+            - string
+            - "null"
+        url:
+          type:
+            - string
+            - "null"
+          format: uri
+        author:
+          type:
+            - string
+            - "null"
+        summaryText:
+          type:
+            - string
+            - "null"
+        contentHtml:
+          type:
+            - string
+            - "null"
+        publishedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        isRead:
+          type: boolean
+        isStarred:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    ItemListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - nextCursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItemResponse"
+        nextCursor:
+          type:
+            - string
+            - "null"
+    UpdateItemStateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        isRead:
+          type: boolean
+        isStarred:
+          type: boolean

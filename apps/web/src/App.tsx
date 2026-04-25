@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 interface User {
@@ -31,6 +31,26 @@ interface Feed {
   createdAt: string;
 }
 
+interface Item {
+  id: string;
+  feedId: string;
+  feedTitle: string | null;
+  title: string | null;
+  url: string | null;
+  author: string | null;
+  summaryText: string | null;
+  contentHtml: string | null;
+  publishedAt: string | null;
+  isRead: boolean;
+  isStarred: boolean;
+  createdAt: string;
+}
+
+interface ItemListResponse {
+  items: Item[];
+  nextCursor: string | null;
+}
+
 interface ApiErrorResponse {
   error?: {
     code?: string;
@@ -45,66 +65,20 @@ interface AppBootstrapState {
   errorMessage: string | null;
 }
 
-const sampleItems = [
-  {
-    id: "01",
-    feed: "planet.postgres",
-    title: "Vacuum tuning without folklore",
-    publishedAt: "3h ago",
-    expanded: true,
-    author: "A. Example",
-    body:
-      "Autovacuum is not magic. Measure table churn, dead tuples, and write pressure before changing settings. Inactive feeds and noisy feeds need different policies too.",
-    read: false,
-    starred: true
-  },
-  {
-    id: "02",
-    feed: "hn.frontpage",
-    title: "Monorepo build systems people actually keep",
-    publishedAt: "5h ago",
-    expanded: false,
-    author: null,
-    body: "",
-    read: true,
-    starred: false
-  },
-  {
-    id: "03",
-    feed: "yt.channel",
-    title: "Why feed parsers fail on real-world XML",
-    publishedAt: "yesterday",
-    expanded: false,
-    author: "Channel Host",
-    body: "",
-    read: false,
-    starred: false
-  }
-];
-
 const navItems = [
-  {
-    to: "/setup",
-    label: "setup"
-  },
-  {
-    to: "/reader",
-    label: "reader"
-  },
-  {
-    to: "/admin",
-    label: "admin"
-  }
+  { label: "setup", to: "/setup" },
+  { label: "reader", to: "/reader" },
+  { label: "admin", to: "/admin" }
 ];
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001";
 
 export function App() {
   const [state, setState] = useState<AppBootstrapState>({
+    errorMessage: null,
     isLoading: true,
     setupCompleted: false,
-    user: null,
-    errorMessage: null
+    user: null
   });
 
   useEffect(() => {
@@ -115,25 +89,25 @@ export function App() {
     try {
       setState((current) => ({
         ...current,
-        isLoading: true,
-        errorMessage: null
+        errorMessage: null,
+        isLoading: true
       }));
 
       const setupStatus = await apiRequest<{ setupCompleted: boolean }>("/setup/status");
       const user = await fetchCurrentUser();
 
       setState({
+        errorMessage: null,
         isLoading: false,
         setupCompleted: setupStatus.setupCompleted,
-        user,
-        errorMessage: null
+        user
       });
     } catch (error) {
       setState({
+        errorMessage: getErrorMessage(error),
         isLoading: false,
         setupCompleted: false,
-        user: null,
-        errorMessage: getErrorMessage(error)
+        user: null
       });
     }
   }
@@ -302,9 +276,7 @@ function SetupRoute(props: {
 
   useEffect(() => {
     if (props.user) {
-      void navigate("/reader", {
-        replace: true
-      });
+      void navigate("/reader", { replace: true });
     }
   }, [navigate, props.user]);
 
@@ -320,9 +292,7 @@ function SetupRoute(props: {
         await props.onSetup(username, password);
       }
 
-      void navigate("/reader", {
-        replace: true
-      });
+      void navigate("/reader", { replace: true });
     } catch (error) {
       setLocalErrorMessage(getErrorMessage(error));
     } finally {
@@ -333,9 +303,7 @@ function SetupRoute(props: {
   return (
     <section className="screen-content">
       <header className="section-header">
-        <p className="section-kicker">
-          {props.setupCompleted ? "$ login" : "$ bootstrap"}
-        </p>
+        <p className="section-kicker">{props.setupCompleted ? "$ login" : "$ bootstrap"}</p>
         <h1>
           {props.setupCompleted ? "authenticate local operator" : "create the only local user"}
         </h1>
@@ -369,11 +337,7 @@ function SetupRoute(props: {
         </label>
         <div className="form-actions">
           <button disabled={isSubmitting || props.isLoading} type="submit">
-            {isSubmitting
-              ? "working..."
-              : props.setupCompleted
-                ? "log in"
-                : "run setup"}
+            {isSubmitting ? "working..." : props.setupCompleted ? "log in" : "run setup"}
           </button>
           <button
             className="secondary-button"
@@ -383,9 +347,7 @@ function SetupRoute(props: {
           >
             refresh status
           </button>
-          <span className="hint-text">
-            {props.setupCompleted ? "POST /session" : "POST /setup"}
-          </span>
+          <span className="hint-text">{props.setupCompleted ? "POST /session" : "POST /setup"}</span>
         </div>
         {localErrorMessage || props.errorMessage ? (
           <p className="form-error">{localErrorMessage ?? props.errorMessage}</p>
@@ -418,68 +380,327 @@ function ProtectedRoute(props: {
 }
 
 function ReaderRoute() {
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [feeds, setFeeds] = useState<Feed[]>([]);
+  const [items, setItems] = useState<Item[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<string[]>([]);
+  const [searchInput, setSearchInput] = useState("");
+  const [filters, setFilters] = useState({
+    feedId: "",
+    folderId: "",
+    q: "",
+    readMode: "unread" as "all" | "unread",
+    starredOnly: false
+  });
+  const itemRefs = useRef<Record<string, HTMLElement | null>>({});
+
+  useEffect(() => {
+    void loadReaderState(true);
+  }, [filters.feedId, filters.folderId, filters.q, filters.readMode, filters.starredOnly]);
+
+  async function loadReaderState(reset: boolean): Promise<void> {
+    try {
+      if (reset) {
+        setIsLoading(true);
+      } else {
+        setIsLoadingMore(true);
+      }
+
+      setErrorMessage(null);
+
+      const [foldersResponse, feedsResponse, itemResponse] = await Promise.all([
+        apiRequest<Folder[]>("/folders"),
+        apiRequest<Feed[]>("/feeds"),
+        loadItemsPage(reset ? null : nextCursor)
+      ]);
+
+      setFolders(foldersResponse);
+      setFeeds(feedsResponse);
+      setItems((current) => (reset ? itemResponse.items : [...current, ...itemResponse.items]));
+      setNextCursor(itemResponse.nextCursor);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsLoading(false);
+      setIsLoadingMore(false);
+    }
+  }
+
+  async function loadItemsPage(cursor: string | null): Promise<ItemListResponse> {
+    const params = new URLSearchParams();
+    params.set("limit", "20");
+
+    if (cursor) {
+      params.set("cursor", cursor);
+    }
+
+    if (filters.feedId) {
+      params.set("feedId", filters.feedId);
+    }
+
+    if (filters.folderId) {
+      params.set("folderId", filters.folderId);
+    }
+
+    if (filters.readMode === "unread") {
+      params.set("read", "false");
+    }
+
+    if (filters.starredOnly) {
+      params.set("starred", "true");
+    }
+
+    if (filters.q) {
+      params.set("q", filters.q);
+    }
+
+    return apiRequest<ItemListResponse>(`/items?${params.toString()}`);
+  }
+
+  async function handleToggleRead(item: Item): Promise<void> {
+    const updated = await apiRequest<Item>(`/items/${item.id}/state`, {
+      body: JSON.stringify({
+        isRead: !item.isRead
+      }),
+      method: "PATCH"
+    });
+
+    setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+  }
+
+  async function handleToggleStar(item: Item): Promise<void> {
+    const updated = await apiRequest<Item>(`/items/${item.id}/state`, {
+      body: JSON.stringify({
+        isStarred: !item.isStarred
+      }),
+      method: "PATCH"
+    });
+
+    setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+  }
+
+  function handleToggleExpanded(itemId: string): void {
+    setExpandedIds((current) => {
+      const isExpanded = current.includes(itemId);
+      const next = isExpanded
+        ? current.filter((value) => value !== itemId)
+        : [...current, itemId];
+
+      if (!isExpanded) {
+        requestAnimationFrame(() => {
+          itemRefs.current[itemId]?.scrollIntoView({
+            block: "start"
+          });
+        });
+      }
+
+      return next;
+    });
+  }
+
   return (
     <section className="screen-content">
       <header className="section-header">
         <p className="section-kicker">$ reader</p>
         <h1>single-pane story stream</h1>
         <p className="section-copy">
-          Endless keyset pagination, unread/all switching, folder/feed filters,
-          search, and inline expansion.
+          Real item data now comes from the public API with cursor pagination, filters, and state toggles.
         </p>
       </header>
 
-      <div className="toolbar">
-        <span className="toolbar-label">filters</span>
-        <button className="toolbar-button toolbar-button-active" type="button">
-          unread
-        </button>
-        <button className="toolbar-button" type="button">
-          all
-        </button>
-        <button className="toolbar-button" type="button">
-          starred
-        </button>
-        <button className="toolbar-button" type="button">
-          folder:databases
-        </button>
-        <button className="toolbar-button" type="button">
-          search:/parser
-        </button>
+      <div className="toolbar toolbar-stacked">
+        <div className="toolbar">
+          <span className="toolbar-label">view</span>
+          <button
+            className={
+              filters.readMode === "unread"
+                ? "toolbar-button toolbar-button-active"
+                : "toolbar-button"
+            }
+            onClick={() =>
+              setFilters((current) => ({
+                ...current,
+                readMode: "unread"
+              }))
+            }
+            type="button"
+          >
+            unread
+          </button>
+          <button
+            className={
+              filters.readMode === "all" ? "toolbar-button toolbar-button-active" : "toolbar-button"
+            }
+            onClick={() =>
+              setFilters((current) => ({
+                ...current,
+                readMode: "all"
+              }))
+            }
+            type="button"
+          >
+            all
+          </button>
+          <button
+            className={
+              filters.starredOnly ? "toolbar-button toolbar-button-active" : "toolbar-button"
+            }
+            onClick={() =>
+              setFilters((current) => ({
+                ...current,
+                starredOnly: !current.starredOnly
+              }))
+            }
+            type="button"
+          >
+            starred
+          </button>
+        </div>
+
+        <div className="toolbar">
+          <label className="toolbar-filter">
+            <span className="toolbar-label">folder</span>
+            <select
+              onChange={(event) =>
+                setFilters((current) => ({
+                  ...current,
+                  folderId: event.target.value
+                }))
+              }
+              value={filters.folderId}
+            >
+              <option value="">all</option>
+              {folders.map((folder) => (
+                <option key={folder.id} value={folder.id}>
+                  {folder.title}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="toolbar-filter">
+            <span className="toolbar-label">feed</span>
+            <select
+              onChange={(event) =>
+                setFilters((current) => ({
+                  ...current,
+                  feedId: event.target.value
+                }))
+              }
+              value={filters.feedId}
+            >
+              <option value="">all</option>
+              {feeds.map((feed) => (
+                <option key={feed.id} value={feed.id}>
+                  {feed.title ?? feed.feedUrl}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <form
+            className="toolbar-search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setFilters((current) => ({
+                ...current,
+                q: searchInput.trim()
+              }));
+            }}
+          >
+            <input
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="search items"
+              type="search"
+              value={searchInput}
+            />
+            <button type="submit">search</button>
+          </form>
+        </div>
       </div>
+
+      {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
+      {isLoading ? <p className="section-copy">Loading items...</p> : null}
 
       <div className="story-list" role="list">
-        {sampleItems.map((item) => (
-          <article
-            key={item.id}
-            className={item.read ? "story-row story-row-read" : "story-row"}
-          >
-            <div className="story-collapsed">
-              <span className="story-id">{item.id}</span>
-              <span className="story-feed">{item.feed}</span>
-              <span className="story-title">{item.title}</span>
-              <span className="story-time">{item.publishedAt}</span>
-            </div>
+        {items.map((item) => {
+          const isExpanded = expandedIds.includes(item.id);
 
-            {item.expanded ? (
-              <div className="story-expanded">
-                <div className="story-meta">
-                  <span>pub:{item.publishedAt}</span>
-                  <span>author:{item.author ?? "unknown"}</span>
-                  <span>read:{item.read ? "yes" : "no"}</span>
-                  <span>starred:{item.starred ? "yes" : "no"}</span>
+          return (
+            <article
+              key={item.id}
+              className={item.isRead ? "story-row story-row-read" : "story-row"}
+              ref={(element) => {
+                itemRefs.current[item.id] = element;
+              }}
+            >
+              <button
+                className="story-collapsed story-collapsed-button"
+                onClick={() => handleToggleExpanded(item.id)}
+                type="button"
+              >
+                <span className="story-id">{item.id.slice(0, 8)}</span>
+                <span className="story-feed">{item.feedTitle ?? "unknown-feed"}</span>
+                <span className="story-title">{item.title ?? "(untitled item)"}</span>
+                <span className="story-time">{formatItemTimestamp(item)}</span>
+              </button>
+
+              {isExpanded ? (
+                <div className="story-expanded">
+                  <div className="story-meta">
+                    <span>pub:{formatItemTimestamp(item)}</span>
+                    <span>author:{item.author ?? "unknown"}</span>
+                    <span>read:{item.isRead ? "yes" : "no"}</span>
+                    <span>starred:{item.isStarred ? "yes" : "no"}</span>
+                  </div>
+                  {item.contentHtml ? (
+                    <div
+                      className="story-body"
+                      dangerouslySetInnerHTML={{ __html: item.contentHtml }}
+                    />
+                  ) : (
+                    <p className="story-body">{item.summaryText ?? "No content."}</p>
+                  )}
+                  <div className="story-actions">
+                    <button onClick={() => void handleToggleRead(item)} type="button">
+                      {item.isRead ? "mark unread" : "mark read"}
+                    </button>
+                    <button onClick={() => void handleToggleStar(item)} type="button">
+                      {item.isStarred ? "unstar" : "star"}
+                    </button>
+                    {item.url ? (
+                      <a className="story-link" href={item.url} rel="noreferrer" target="_blank">
+                        open source
+                      </a>
+                    ) : null}
+                  </div>
                 </div>
-                <p className="story-body">{item.body}</p>
-                <div className="story-actions">
-                  <button type="button">toggle read</button>
-                  <button type="button">toggle star</button>
-                  <button type="button">open source</button>
-                </div>
-              </div>
-            ) : null}
-          </article>
-        ))}
+              ) : null}
+            </article>
+          );
+        })}
       </div>
+
+      {!isLoading && items.length === 0 ? (
+        <p className="section-copy">No items match the current filters.</p>
+      ) : null}
+
+      {nextCursor ? (
+        <div className="load-more-row">
+          <button
+            disabled={isLoadingMore}
+            onClick={() => void loadReaderState(false)}
+            type="button"
+          >
+            {isLoadingMore ? "loading..." : "load more"}
+          </button>
+          <span className="hint-text">cursor pagination</span>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -783,6 +1004,10 @@ function findFolderTitle(folders: Folder[], folderId: string | null): string {
 
 function formatTimestamp(value: string): string {
   return new Date(value).toLocaleString();
+}
+
+function formatItemTimestamp(item: Item): string {
+  return item.publishedAt ? formatTimestamp(item.publishedAt) : "(no pub date)";
 }
 
 function normalizeStatus(status: string): "ok" | "parse" | "network" {
