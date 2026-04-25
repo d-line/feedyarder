@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 interface User {
@@ -44,6 +44,12 @@ interface FetchEvent {
   missingPublishedAtCount: number;
   fetchedAt: string;
   durationMs: number | null;
+}
+
+interface OpmlImportResponse {
+  createdFeedCount: number;
+  createdFolderCount: number;
+  skippedFeedCount: number;
 }
 
 interface Item {
@@ -733,6 +739,10 @@ function AdminRoute() {
   const [folderId, setFolderId] = useState("");
   const [isSubmittingFolder, setIsSubmittingFolder] = useState(false);
   const [isSubmittingFeed, setIsSubmittingFeed] = useState(false);
+  const [opmlText, setOpmlText] = useState("");
+  const [isImportingOpml, setIsImportingOpml] = useState(false);
+  const [isExportingOpml, setIsExportingOpml] = useState(false);
+  const [opmlResult, setOpmlResult] = useState<OpmlImportResponse | null>(null);
 
   useEffect(() => {
     void loadAdminState();
@@ -842,6 +852,66 @@ function AdminRoute() {
     }
   }
 
+  async function handleImportOpml(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setIsImportingOpml(true);
+    setErrorMessage(null);
+    setOpmlResult(null);
+
+    try {
+      const result = await apiRequest<OpmlImportResponse>("/opml/import", {
+        body: JSON.stringify({
+          opml: opmlText
+        }),
+        method: "POST"
+      });
+
+      setOpmlResult(result);
+      setOpmlText("");
+      await loadAdminState();
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsImportingOpml(false);
+    }
+  }
+
+  async function handleOpmlFileChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setOpmlText(await file.text());
+    event.target.value = "";
+  }
+
+  async function handleExportOpml(): Promise<void> {
+    try {
+      setIsExportingOpml(true);
+      setErrorMessage(null);
+
+      const opml = await apiTextRequest("/opml/export");
+      const blob = new Blob([opml], {
+        type: "application/xml;charset=utf-8"
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = "feedyarder.opml";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsExportingOpml(false);
+    }
+  }
+
   return (
     <section className="screen-content">
       <header className="section-header">
@@ -849,7 +919,7 @@ function AdminRoute() {
         <h1>feed health and import controls</h1>
         <p className="section-copy">
           Feed creation is live, and operator controls now cover pause/resume,
-          retry-now, and recent fetch history.
+          retry-now, recent fetch history, and OPML import/export.
         </p>
       </header>
 
@@ -919,6 +989,49 @@ function AdminRoute() {
             <span className="hint-text">POST /feeds</span>
           </div>
         </form>
+      </div>
+
+      <div className="admin-grid admin-grid-wide">
+        <form className="terminal-form" onSubmit={(event) => void handleImportOpml(event)}>
+          <p className="status-title">import opml</p>
+          <label className="form-row">
+            <span>file</span>
+            <input accept=".opml,.xml,text/xml,application/xml" onChange={(event) => void handleOpmlFileChange(event)} type="file" />
+          </label>
+          <label className="form-row">
+            <span>opml xml</span>
+            <textarea
+              className="opml-textarea"
+              onChange={(event) => setOpmlText(event.target.value)}
+              placeholder="Paste OPML here or load a file above"
+              value={opmlText}
+            />
+          </label>
+          <div className="form-actions">
+            <button disabled={isImportingOpml || opmlText.trim().length === 0} type="submit">
+              {isImportingOpml ? "importing..." : "import opml"}
+            </button>
+            <span className="hint-text">POST /opml/import</span>
+          </div>
+          {opmlResult ? (
+            <p className="section-copy">
+              imported feeds:{opmlResult.createdFeedCount} folders:{opmlResult.createdFolderCount} skipped:{opmlResult.skippedFeedCount}
+            </p>
+          ) : null}
+        </form>
+
+        <section className="terminal-form">
+          <p className="status-title">export opml</p>
+          <p className="section-copy">
+            Export the current folder tree and all feeds, including paused ones.
+          </p>
+          <div className="form-actions">
+            <button disabled={isExportingOpml} onClick={() => void handleExportOpml()} type="button">
+              {isExportingOpml ? "exporting..." : "download opml"}
+            </button>
+            <span className="hint-text">GET /opml/export</span>
+          </div>
+        </section>
       </div>
 
       {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
@@ -1060,6 +1173,29 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return data as T;
+}
+
+async function apiTextRequest(path: string, init?: RequestInit): Promise<string> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    credentials: "include",
+    ...init
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    let parsed: unknown = text;
+
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      // Keep plain text as-is.
+    }
+
+    throw parsed;
+  }
+
+  return text;
 }
 
 function getErrorMessage(error: unknown): string {

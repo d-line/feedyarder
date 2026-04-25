@@ -305,6 +305,52 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /opml/import:
+    post:
+      operationId: importOpml
+      summary: Import feeds and folders from an OPML document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportOpmlRequest"
+      responses:
+        "201":
+          description: OPML import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportOpmlResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /opml/export:
+    get:
+      operationId: exportOpml
+      summary: Export the current feed tree as OPML
+      responses:
+        "200":
+          description: OPML document
+          content:
+            application/xml:
+              schema:
+                type: string
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /items:
     get:
       operationId: listItems
@@ -624,6 +670,27 @@ components:
           format: date-time
         durationMs:
           type: [integer, "null"]
+    ImportOpmlRequest:
+      type: object
+      additionalProperties: false
+      required: [opml]
+      properties:
+        opml:
+          type: string
+    ImportOpmlResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - createdFeedCount
+        - createdFolderCount
+        - skippedFeedCount
+      properties:
+        createdFeedCount:
+          type: integer
+        createdFolderCount:
+          type: integer
+        skippedFeedCount:
+          type: integer
     ItemResponse:
       type: object
       additionalProperties: false

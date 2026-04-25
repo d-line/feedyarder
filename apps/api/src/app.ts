@@ -32,6 +32,9 @@ import {
 } from "./feed-management/schemas.js";
 import { listItems, updateItemState } from "./item-management/repository.js";
 import { listItemsQuerySchema, updateItemStateSchema } from "./item-management/schemas.js";
+import { importFeedsFromOpml, listFeedsForOpmlExport } from "./opml/repository.js";
+import { importOpmlRequestSchema } from "./opml/schemas.js";
+import { buildOpmlDocument, parseOpmlDocument } from "./opml/service.js";
 
 interface ErrorResponse {
   error: {
@@ -342,6 +345,40 @@ export function createApp(config: AppConfig) {
           starred: query.starred ?? null
         })
       );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/opml/import", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      const payload = importOpmlRequestSchema.parse(request.body);
+      const feeds = parseOpmlDocument(payload.opml);
+      const result = await importFeedsFromOpml(pool, feeds);
+
+      return response.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/opml/export", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      const feeds = await listFeedsForOpmlExport(pool);
+      const opml = buildOpmlDocument(feeds);
+
+      response.setHeader("Content-Type", "application/xml; charset=utf-8");
+      response.setHeader("Content-Disposition", 'attachment; filename="feedyarder.opml"');
+
+      return response.send(opml);
     } catch (error) {
       next(error);
     }
