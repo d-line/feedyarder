@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+.DS_Store
+.env
+.env.local
+.turbo
+*.log
+
+apps/web/.vite
+apps/web/dist
+apps/api/dist
+apps/worker/dist
+packages/*/dist

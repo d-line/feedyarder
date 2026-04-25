@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: feedyarder-postgres
+    environment:
+      POSTGRES_DB: feedyarder
+      POSTGRES_USER: feedyarder
+      POSTGRES_PASSWORD: feedyarder
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

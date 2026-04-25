@@ -31,6 +31,7 @@ If the project direction changes, this file must be updated to reflect the new a
 
 ## Reader UI Behavior
 
+- The UI should visually resemble a terminal/TUI application rather than a conventional dashboard.
 - Collapsed story rows show feed name and story title.
 - Expanded story view shows as much extracted feed data as available.
 - Expanded view should include full title, human-readable publication date when available, author when available, and actions for read/unread and star.
@@ -146,6 +147,7 @@ If the project direction changes, this file must be updated to reflect the new a
   - one Express API app
   - one worker app
   - one PostgreSQL database
+  - one small shared database package for migrations/schema assets used by API and worker
 - Prefer a monorepo unless future requirements justify splitting it.
 
 ## Engineering Style
@@ -156,6 +158,12 @@ If the project direction changes, this file must be updated to reflect the new a
 - Avoid premature generalization for multi-user, distributed systems, or plugin-style extensibility.
 - Prefer append-only history where it improves debugging and operational clarity.
 - Avoid introducing infrastructure that is not required by the current scope.
+- On the frontend, favor a terminal/TUI visual language:
+  - text-first layout
+  - restrained palette
+  - dense information display
+  - keyboard-friendly interaction
+  - avoid glossy dashboard styling
 
 ## Testing Strategy
 
@@ -183,7 +191,8 @@ If the project direction changes, this file must be updated to reflect the new a
   - `apps/api`
   - `apps/worker`
   - `packages/contracts`
-  - optional small shared package only if duplication appears
+  - `packages/db`
+  - optional small shared package only if duplication appears beyond contracts/db concerns
 - Use cursor/keyset pagination, not offset pagination, for story listing.
 - Build the internal product API first; Fever compatibility may be added later as a compatibility layer if needed.
 - Maintain a separate admin page rather than overloading the reader UI with management concerns.
