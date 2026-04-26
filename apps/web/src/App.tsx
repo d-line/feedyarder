@@ -1,84 +1,27 @@
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import {
+  errorResponseSchema,
+  fetchEventListResponseSchema,
+  feedResponseSchema,
+  feedListResponseSchema,
+  folderListResponseSchema,
+  folderResponseSchema,
+  itemListResponseSchema,
+  itemResponseSchema,
+  opmlImportResponseSchema,
+  setupStatusResponseSchema,
+  userResponseSchema,
+  type ErrorResponse,
+  type FetchEvent,
+  type Feed,
+  type Folder,
+  type Item,
+  type ItemListResponse,
+  type OpmlImportResponse,
+  type User
+} from "@feedyarder/contracts";
 import { sanitizeFeedHtml } from "./sanitize-feed-html.js";
-
-interface User {
-  id: string;
-  username: string;
-  createdAt: string;
-}
-
-interface Folder {
-  id: string;
-  title: string;
-  position: number;
-  createdAt: string;
-}
-
-interface Feed {
-  id: string;
-  folderId: string | null;
-  title: string | null;
-  siteUrl: string | null;
-  feedUrl: string;
-  faviconUrl: string | null;
-  status: string;
-  isPaused: boolean;
-  fetchIntervalMinutes: number;
-  consecutiveErrorCount: number;
-  lastSuccessAt: string | null;
-  lastErrorAt: string | null;
-  lastErrorCategory: string | null;
-  lastErrorMessage: string | null;
-  createdAt: string;
-}
-
-interface FetchEvent {
-  id: string;
-  feedId: string;
-  feedTitle: string | null;
-  feedUrl: string;
-  status: string;
-  errorCategory: string | null;
-  errorMessage: string | null;
-  httpStatus: number | null;
-  missingPublishedAtCount: number;
-  fetchedAt: string;
-  durationMs: number | null;
-}
-
-interface OpmlImportResponse {
-  createdFeedCount: number;
-  createdFolderCount: number;
-  skippedFeedCount: number;
-}
-
-interface Item {
-  id: string;
-  feedId: string;
-  feedTitle: string | null;
-  title: string | null;
-  url: string | null;
-  author: string | null;
-  summaryText: string | null;
-  contentHtml: string | null;
-  publishedAt: string | null;
-  isRead: boolean;
-  isStarred: boolean;
-  createdAt: string;
-}
-
-interface ItemListResponse {
-  items: Item[];
-  nextCursor: string | null;
-}
-
-interface ApiErrorResponse {
-  error?: {
-    code?: string;
-    message?: string;
-  };
-}
 
 interface AppBootstrapState {
   isLoading: boolean;
@@ -115,7 +58,9 @@ export function App() {
         isLoading: true
       }));
 
-      const setupStatus = await apiRequest<{ setupCompleted: boolean }>("/setup/status");
+      const setupStatus = await apiRequest("/setup/status", {
+        schema: setupStatusResponseSchema
+      });
       const user = await fetchCurrentUser();
 
       setState({
@@ -135,9 +80,10 @@ export function App() {
   }
 
   async function handleSetup(username: string, password: string): Promise<void> {
-    const user = await apiRequest<User>("/setup", {
+    const user = await apiRequest("/setup", {
       body: JSON.stringify({ password, username }),
-      method: "POST"
+      method: "POST",
+      schema: userResponseSchema
     });
 
     setState({
@@ -149,9 +95,10 @@ export function App() {
   }
 
   async function handleLogin(username: string, password: string): Promise<void> {
-    const user = await apiRequest<User>("/session", {
+    const user = await apiRequest("/session", {
       body: JSON.stringify({ password, username }),
-      method: "POST"
+      method: "POST",
+      schema: userResponseSchema
     });
 
     setState((current) => ({
@@ -596,8 +543,8 @@ function ReaderRoute() {
       setErrorMessage(null);
 
       const [foldersResponse, feedsResponse, itemResponse] = await Promise.all([
-        apiRequest<Folder[]>("/folders"),
-        apiRequest<Feed[]>("/feeds"),
+        apiRequest("/folders", { schema: folderListResponseSchema }),
+        apiRequest("/feeds", { schema: feedListResponseSchema }),
         loadItemsPage(reset ? null : nextCursor)
       ]);
 
@@ -641,26 +588,30 @@ function ReaderRoute() {
       params.set("q", filters.q);
     }
 
-    return apiRequest<ItemListResponse>(`/items?${params.toString()}`);
+    return apiRequest(`/items?${params.toString()}`, {
+      schema: itemListResponseSchema
+    });
   }
 
   async function handleToggleRead(item: Item): Promise<void> {
-    const updated = await apiRequest<Item>(`/items/${item.id}/state`, {
+    const updated = await apiRequest(`/items/${item.id}/state`, {
       body: JSON.stringify({
         isRead: !item.isRead
       }),
-      method: "PATCH"
+      method: "PATCH",
+      schema: itemResponseSchema
     });
 
     setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
   }
 
   async function handleToggleStar(item: Item): Promise<void> {
-    const updated = await apiRequest<Item>(`/items/${item.id}/state`, {
+    const updated = await apiRequest(`/items/${item.id}/state`, {
       body: JSON.stringify({
         isStarred: !item.isStarred
       }),
-      method: "PATCH"
+      method: "PATCH",
+      schema: itemResponseSchema
     });
 
     setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
@@ -1037,9 +988,9 @@ function AdminRoute() {
       setErrorMessage(null);
 
       const [foldersResponse, feedsResponse, fetchEventsResponse] = await Promise.all([
-        apiRequest<Folder[]>("/folders"),
-        apiRequest<Feed[]>("/feeds"),
-        apiRequest<FetchEvent[]>("/fetch-events?limit=15")
+        apiRequest("/folders", { schema: folderListResponseSchema }),
+        apiRequest("/feeds", { schema: feedListResponseSchema }),
+        apiRequest("/fetch-events?limit=15", { schema: fetchEventListResponseSchema })
       ]);
 
       setFolders(foldersResponse);
@@ -1058,12 +1009,13 @@ function AdminRoute() {
     setErrorMessage(null);
 
     try {
-      const createdFolder = await apiRequest<Folder>("/folders", {
+      const createdFolder = await apiRequest("/folders", {
         body: JSON.stringify({
           position: folders.length,
           title: folderTitle
         }),
-        method: "POST"
+        method: "POST",
+        schema: folderResponseSchema
       });
 
       setFolders((current) => sortFolders([...current, createdFolder]));
@@ -1082,14 +1034,15 @@ function AdminRoute() {
     setErrorMessage(null);
 
     try {
-      const createdFeed = await apiRequest<Feed>("/feeds", {
+      const createdFeed = await apiRequest("/feeds", {
         body: JSON.stringify({
           feedUrl,
           folderId: folderId || null,
           siteUrl: siteUrl || null,
           title: feedTitle || null
         }),
-        method: "POST"
+        method: "POST",
+        schema: feedResponseSchema
       });
 
       setFeeds((current) => [...current, createdFeed]);
@@ -1116,12 +1069,13 @@ function AdminRoute() {
     setErrorMessage(null);
 
     try {
-      const updatedFolder = await apiRequest<Folder>(`/folders/${selectedFolder.id}`, {
+      const updatedFolder = await apiRequest(`/folders/${selectedFolder.id}`, {
         body: JSON.stringify({
           position: Number.parseInt(editFolderPosition, 10),
           title: editFolderTitle.trim()
         }),
-        method: "PATCH"
+        method: "PATCH",
+        schema: folderResponseSchema
       });
 
       setFolders((current) =>
@@ -1167,11 +1121,12 @@ function AdminRoute() {
     try {
       setErrorMessage(null);
 
-      const updatedFeed = await apiRequest<Feed>(`/feeds/${feed.id}`, {
+      const updatedFeed = await apiRequest(`/feeds/${feed.id}`, {
         body: JSON.stringify({
           isPaused: !feed.isPaused
         }),
-        method: "PATCH"
+        method: "PATCH",
+        schema: feedResponseSchema
       });
 
       setFeeds((current) => current.map((entry) => (entry.id === updatedFeed.id ? updatedFeed : entry)));
@@ -1187,8 +1142,9 @@ function AdminRoute() {
     try {
       setErrorMessage(null);
 
-      const updatedFeed = await apiRequest<Feed>(`/feeds/${feed.id}/retry`, {
-        method: "POST"
+      const updatedFeed = await apiRequest(`/feeds/${feed.id}/retry`, {
+        method: "POST",
+        schema: feedResponseSchema
       });
 
       setFeeds((current) => current.map((entry) => (entry.id === updatedFeed.id ? updatedFeed : entry)));
@@ -1212,14 +1168,15 @@ function AdminRoute() {
     setErrorMessage(null);
 
     try {
-      const updatedFeed = await apiRequest<Feed>(`/feeds/${selectedFeed.id}`, {
+      const updatedFeed = await apiRequest(`/feeds/${selectedFeed.id}`, {
         body: JSON.stringify({
           feedUrl: editFeedUrl.trim(),
           folderId: editFolderId || null,
           siteUrl: editSiteUrl.trim() || null,
           title: editFeedTitle.trim() || null
         }),
-        method: "PATCH"
+        method: "PATCH",
+        schema: feedResponseSchema
       });
 
       setFeeds((current) => current.map((entry) => (entry.id === updatedFeed.id ? updatedFeed : entry)));
@@ -1260,11 +1217,12 @@ function AdminRoute() {
     setOpmlResult(null);
 
     try {
-      const result = await apiRequest<OpmlImportResponse>("/opml/import", {
+      const result = await apiRequest("/opml/import", {
         body: JSON.stringify({
           opml: opmlText
         }),
-        method: "POST"
+        method: "POST",
+        schema: opmlImportResponseSchema
       });
 
       setOpmlResult(result);
@@ -1744,7 +1702,9 @@ function AdminRoute() {
 
 async function fetchCurrentUser(): Promise<User | null> {
   try {
-    return await apiRequest<User>("/me");
+    return await apiRequest("/me", {
+      schema: userResponseSchema
+    });
   } catch (error) {
     if (isApiErrorCode(error, "not_authenticated")) {
       return null;
@@ -1754,18 +1714,34 @@ async function fetchCurrentUser(): Promise<User | null> {
   }
 }
 
-async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers);
+interface ApiSchema<T> {
+  parse: (input: unknown) => T;
+}
 
-  if (!headers.has("Content-Type")) {
+interface ApiRequestOptions<T> extends Omit<RequestInit, "body"> {
+  body?: BodyInit | null;
+  schema?: ApiSchema<T>;
+}
+
+async function apiRequest<T>(path: string, options?: ApiRequestOptions<T>): Promise<T> {
+  const { schema, ...init } = options ?? {};
+  const headers = new Headers(init.headers);
+
+  if (options?.body !== undefined && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const requestInit: RequestInit = {
     credentials: "include",
     ...init,
     headers
-  });
+  };
+
+  if (options?.body !== undefined) {
+    requestInit.body = options.body;
+  }
+
+  const response = await fetch(`${apiBaseUrl}${path}`, requestInit);
 
   if (response.status === 204) {
     return undefined as T;
@@ -1775,7 +1751,17 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const data = text.length > 0 ? (JSON.parse(text) as unknown) : undefined;
 
   if (!response.ok) {
+    const parsedError = errorResponseSchema.safeParse(data);
+
+    if (parsedError.success) {
+      throw parsedError.data;
+    }
+
     throw data;
+  }
+
+  if (schema) {
+    return schema.parse(data);
   }
 
   return data as T;
@@ -1809,9 +1795,9 @@ function getErrorMessage(error: unknown): string {
     typeof error === "object" &&
     error !== null &&
     "error" in error &&
-    typeof (error as ApiErrorResponse).error?.message === "string"
+    typeof (error as ErrorResponse).error?.message === "string"
   ) {
-    return (error as ApiErrorResponse).error?.message ?? "Unexpected API error.";
+    return (error as ErrorResponse).error?.message ?? "Unexpected API error.";
   }
 
   if (error instanceof Error) {
@@ -1826,7 +1812,7 @@ function isApiErrorCode(error: unknown, code: string): boolean {
     typeof error === "object" &&
     error !== null &&
     "error" in error &&
-    (error as ApiErrorResponse).error?.code === code
+    (error as ErrorResponse).error?.code === code
   );
 }
 

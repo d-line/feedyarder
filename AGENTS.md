@@ -154,6 +154,7 @@ If the project direction changes, this file must be updated to reflect the new a
 - OpenAPI is required.
 - OpenAPI is used to generate frontend types and validation artifacts.
 - `zod` generation from the OpenAPI contract is desired.
+- Runtime response validation in the web app should happen at the API boundary using shared contract schemas from `packages/contracts`.
 - Fever API is explicitly deferred.
 
 ## Stack Decisions
