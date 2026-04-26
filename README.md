@@ -51,3 +51,24 @@ docker compose up --build -d
 docker compose logs -f api worker web
 docker compose down
 ```
+
+## Database Migrations
+
+Migration framework now uses versioned `up/down` scripts in `packages/db/migrations`:
+
+- `0001_initial.up.sql`
+- `0001_initial.down.sql`
+
+Run commands from repo root:
+
+```bash
+npm run db:migrate:status
+npm run db:migrate:up
+npm run db:migrate:down -- 1
+```
+
+Default migrate command still runs `up`:
+
+```bash
+npm run db:migrate
+```

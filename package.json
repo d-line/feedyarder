@@ -13,6 +13,9 @@
   "scripts": {
     "build": "npm run build --workspaces",
     "check": "npm run typecheck --workspaces",
+    "db:migrate:down": "npm run migrate:down -w @feedyarder/db",
+    "db:migrate:status": "npm run migrate:status -w @feedyarder/db",
+    "db:migrate:up": "npm run migrate:up -w @feedyarder/db",
     "db:migrate": "npm run migrate -w @feedyarder/db",
     "dev:api": "npm run dev -w @feedyarder/api",
     "dev:web": "npm run dev -w @feedyarder/web",

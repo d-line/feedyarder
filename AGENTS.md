@@ -213,6 +213,7 @@ If the project direction changes, this file must be updated to reflect the new a
   - `packages/contracts`
   - `packages/db`
   - optional small shared package only if duplication appears beyond contracts/db concerns
+- Database schema changes should use versioned migrations tracked in a `schema_migrations` table, with explicit `.up.sql` / `.down.sql` files and `up/down/status` commands.
 - Use cursor/keyset pagination, not offset pagination, for story listing.
 - Build the internal product API first; Fever compatibility may be added later as a compatibility layer if needed.
 - Maintain a separate admin page rather than overloading the reader UI with management concerns.

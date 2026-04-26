@@ -16,6 +16,8 @@ export function getPool(connectionString: string): Pool {
   return pool;
 }
 
+export * from "./migrator.js";
+
 export async function readMigrationFile(fileName: string): Promise<string> {
   const currentFilePath = fileURLToPath(import.meta.url);
   const currentDirPath = path.dirname(currentFilePath);
