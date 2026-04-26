@@ -269,6 +269,40 @@ describe("API integration", () => {
     expect(unreadAfterUpdate.data.items.some((item) => item.id === itemId)).toBe(false);
   });
 
+  it("logs out current session and keeps logout idempotent", async () => {
+    await setupAndLogin();
+
+    const meBeforeLogout = await request<{ id: string; username: string }>("/me");
+    expect(meBeforeLogout.response.status).toBe(200);
+    expect(meBeforeLogout.data.username).toBe("operator");
+
+    const logoutFirst = await request<undefined>("/session", {
+      method: "DELETE"
+    });
+    expect(logoutFirst.response.status).toBe(204);
+
+    const meAfterLogout = await request<{ error: { code: string; message: string } }>("/me");
+    expect(meAfterLogout.response.status).toBe(401);
+    expect(meAfterLogout.data.error.code).toBe("not_authenticated");
+
+    const protectedAfterLogout = await request<{ error: { code: string; message: string } }>(
+      "/feeds"
+    );
+    expect(protectedAfterLogout.response.status).toBe(401);
+    expect(protectedAfterLogout.data.error.code).toBe("not_authenticated");
+
+    const logoutSecond = await request<undefined>("/session", {
+      method: "DELETE"
+    });
+    expect(logoutSecond.response.status).toBe(204);
+
+    const protectedAfterSecondLogout = await request<{ error: { code: string; message: string } }>(
+      "/folders"
+    );
+    expect(protectedAfterSecondLogout.response.status).toBe(401);
+    expect(protectedAfterSecondLogout.data.error.code).toBe("not_authenticated");
+  });
+
   it("imports and exports OPML with duplicate skipping", async () => {
     await setupAndLogin();
 
