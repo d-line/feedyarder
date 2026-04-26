@@ -317,6 +317,189 @@ describe("API integration", () => {
     expect(exported.text).toContain("https://example.com/forum.xml");
     expect(exported.text).toContain("Forum");
   });
+
+  it("lists fetch events with ordering, limit, and feed filter", async () => {
+    await setupAndLogin();
+    const pool = requireTestPool();
+
+    const feedOne = await createFeedForTest({
+      feedUrl: "https://example.com/feed-one.xml",
+      title: "Feed One"
+    });
+    const feedTwo = await createFeedForTest({
+      feedUrl: "https://example.com/feed-two.xml",
+      title: "Feed Two"
+    });
+
+    await insertFetchEvent(pool, {
+      durationMs: 310,
+      errorCategory: null,
+      errorMessage: null,
+      feedId: feedOne.id,
+      fetchedAt: "2026-04-25T00:00:00.000Z",
+      httpStatus: 304,
+      missingPublishedAtCount: 0,
+      status: "not_modified"
+    });
+    await insertFetchEvent(pool, {
+      durationMs: 1400,
+      errorCategory: "parse",
+      errorMessage: "Invalid XML document",
+      feedId: feedTwo.id,
+      fetchedAt: "2026-04-25T01:00:00.000Z",
+      httpStatus: null,
+      missingPublishedAtCount: 1,
+      status: "error"
+    });
+    await insertFetchEvent(pool, {
+      durationMs: 900,
+      errorCategory: "network",
+      errorMessage: "connect ECONNRESET",
+      feedId: feedOne.id,
+      fetchedAt: "2026-04-25T02:00:00.000Z",
+      httpStatus: null,
+      missingPublishedAtCount: 2,
+      status: "error"
+    });
+
+    const latestTwo = await request<Array<{ feedId: string; fetchedAt: string; status: string }>>(
+      "/fetch-events?limit=2"
+    );
+    expect(latestTwo.response.status).toBe(200);
+    expect(latestTwo.data).toHaveLength(2);
+    expect(latestTwo.data[0]?.feedId).toBe(feedOne.id);
+    expect(latestTwo.data[0]?.status).toBe("error");
+    expect(latestTwo.data[1]?.feedId).toBe(feedTwo.id);
+    expect(latestTwo.data[1]?.status).toBe("error");
+    expect(new Date(latestTwo.data[0]?.fetchedAt ?? 0).getTime()).toBeGreaterThan(
+      new Date(latestTwo.data[1]?.fetchedAt ?? 0).getTime()
+    );
+
+    const onlyFeedOne = await request<
+      Array<{ feedId: string; feedTitle: string | null; errorCategory: string | null; status: string }>
+    >(`/fetch-events?feedId=${feedOne.id}&limit=10`);
+    expect(onlyFeedOne.response.status).toBe(200);
+    expect(onlyFeedOne.data).toHaveLength(2);
+    expect(onlyFeedOne.data.every((event) => event.feedId === feedOne.id)).toBe(true);
+    expect(onlyFeedOne.data[0]?.feedTitle).toBe("Feed One");
+    expect(onlyFeedOne.data[0]?.errorCategory).toBe("network");
+    expect(onlyFeedOne.data[1]?.status).toBe("not_modified");
+  });
+
+  it("supports item search and filter combinations with cursor pagination", async () => {
+    await setupAndLogin();
+    const pool = requireTestPool();
+
+    const folderTech = await createFolderForTest({
+      position: 0,
+      title: "Tech"
+    });
+    const folderOps = await createFolderForTest({
+      position: 1,
+      title: "Ops"
+    });
+
+    const feedTech = await createFeedForTest({
+      feedUrl: "https://example.com/tech.xml",
+      folderId: folderTech.id,
+      title: "Rust Signal"
+    });
+    const feedOps = await createFeedForTest({
+      feedUrl: "https://example.com/ops.xml",
+      folderId: folderOps.id,
+      title: "Ops Wire"
+    });
+
+    await insertItem(pool, {
+      author: "alice",
+      contentHtml: "<p>alpha body</p>",
+      dedupeKey: "tech-1",
+      feedId: feedTech.id,
+      guid: "tech-guid-1",
+      isRead: false,
+      isStarred: false,
+      publishedAt: "2026-04-25T12:00:00.000Z",
+      summaryText: "alpha summary",
+      title: "Language update",
+      url: "https://example.com/tech/1"
+    });
+    await insertItem(pool, {
+      author: "alice",
+      contentHtml: "<p>beta body</p>",
+      dedupeKey: "tech-2",
+      feedId: feedTech.id,
+      guid: "tech-guid-2",
+      isRead: true,
+      isStarred: true,
+      publishedAt: "2026-04-24T12:00:00.000Z",
+      summaryText: "beta summary",
+      title: "Compiler notes",
+      url: "https://example.com/tech/2"
+    });
+    await insertItem(pool, {
+      author: "bob",
+      contentHtml: "<p>deploy checklist</p>",
+      dedupeKey: "ops-1",
+      feedId: feedOps.id,
+      guid: "ops-guid-1",
+      isRead: false,
+      isStarred: true,
+      publishedAt: "2026-04-23T12:00:00.000Z",
+      summaryText: "deploy incident report",
+      title: "Incident update",
+      url: "https://example.com/ops/1"
+    });
+    await insertItem(pool, {
+      author: "carol",
+      contentHtml: "<p>no date body</p>",
+      dedupeKey: "ops-2",
+      feedId: feedOps.id,
+      guid: "ops-guid-2",
+      isRead: false,
+      isStarred: false,
+      publishedAt: null,
+      summaryText: "misc note",
+      title: "Loose note",
+      url: "https://example.com/ops/2"
+    });
+
+    const byFeedTitleSearch = await request<{ items: Array<{ feedId: string }> }>(
+      "/items?q=rust&limit=20"
+    );
+    expect(byFeedTitleSearch.response.status).toBe(200);
+    expect(byFeedTitleSearch.data.items).toHaveLength(2);
+    expect(byFeedTitleSearch.data.items.every((item) => item.feedId === feedTech.id)).toBe(true);
+
+    const unreadStarredInOps = await request<{ items: Array<{ id: string; feedId: string }> }>(
+      `/items?folderId=${folderOps.id}&read=false&starred=true&limit=20`
+    );
+    expect(unreadStarredInOps.response.status).toBe(200);
+    expect(unreadStarredInOps.data.items).toHaveLength(1);
+    expect(unreadStarredInOps.data.items[0]?.feedId).toBe(feedOps.id);
+
+    const deploySearchWithFilters = await request<{ items: Array<{ title: string | null }> }>(
+      "/items?q=deploy&read=false&starred=true&limit=20"
+    );
+    expect(deploySearchWithFilters.response.status).toBe(200);
+    expect(deploySearchWithFilters.data.items).toHaveLength(1);
+    expect(deploySearchWithFilters.data.items[0]?.title).toBe("Incident update");
+
+    const firstPage = await request<{ items: Array<{ title: string | null }>; nextCursor: string | null }>(
+      `/items?feedId=${feedTech.id}&limit=1`
+    );
+    expect(firstPage.response.status).toBe(200);
+    expect(firstPage.data.items).toHaveLength(1);
+    expect(firstPage.data.items[0]?.title).toBe("Language update");
+    expect(firstPage.data.nextCursor).not.toBeNull();
+
+    const secondPage = await request<{ items: Array<{ title: string | null }>; nextCursor: string | null }>(
+      `/items?feedId=${feedTech.id}&limit=1&cursor=${firstPage.data.nextCursor}`
+    );
+    expect(secondPage.response.status).toBe(200);
+    expect(secondPage.data.items).toHaveLength(1);
+    expect(secondPage.data.items[0]?.title).toBe("Compiler notes");
+    expect(secondPage.data.nextCursor).toBeNull();
+  });
 });
 
 async function setupAndLogin(): Promise<void> {
@@ -429,4 +612,149 @@ function requireTestPool(): Pool {
   }
 
   return testPool;
+}
+
+async function createFolderForTest(input: {
+  position: number;
+  title: string;
+}): Promise<{ id: string; title: string; position: number }> {
+  const response = await request<{ id: string; title: string; position: number }>("/folders", {
+    body: JSON.stringify(input),
+    method: "POST"
+  });
+
+  if (response.response.status !== 201) {
+    throw new Error(`Folder creation failed unexpectedly: ${response.response.status}`);
+  }
+
+  return response.data;
+}
+
+async function createFeedForTest(input: {
+  feedUrl: string;
+  folderId?: string;
+  title?: string;
+}): Promise<{ id: string; folderId: string | null; feedUrl: string; title: string | null }> {
+  const response = await request<{
+    id: string;
+    folderId: string | null;
+    feedUrl: string;
+    title: string | null;
+  }>("/feeds", {
+    body: JSON.stringify({
+      feedUrl: input.feedUrl,
+      folderId: input.folderId ?? null,
+      title: input.title ?? null
+    }),
+    method: "POST"
+  });
+
+  if (response.response.status !== 201) {
+    throw new Error(`Feed creation failed unexpectedly: ${response.response.status}`);
+  }
+
+  return response.data;
+}
+
+async function insertFetchEvent(
+  pool: Pool,
+  input: {
+    feedId: string;
+    status: string;
+    errorCategory: string | null;
+    errorMessage: string | null;
+    httpStatus: number | null;
+    missingPublishedAtCount: number;
+    fetchedAt: string;
+    durationMs: number | null;
+  }
+): Promise<void> {
+  await pool.query(
+    `
+      insert into fetch_events (
+        feed_id,
+        status,
+        error_category,
+        error_message,
+        http_status,
+        missing_published_at_count,
+        fetched_at,
+        duration_ms
+      )
+      values ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8)
+    `,
+    [
+      input.feedId,
+      input.status,
+      input.errorCategory,
+      input.errorMessage,
+      input.httpStatus,
+      input.missingPublishedAtCount,
+      input.fetchedAt,
+      input.durationMs
+    ]
+  );
+}
+
+async function insertItem(
+  pool: Pool,
+  input: {
+    feedId: string;
+    guid: string;
+    dedupeKey: string;
+    title: string | null;
+    url: string | null;
+    author: string | null;
+    summaryText: string | null;
+    contentHtml: string | null;
+    publishedAt: string | null;
+    isRead: boolean;
+    isStarred: boolean;
+  }
+): Promise<void> {
+  await pool.query(
+    `
+      insert into items (
+        feed_id,
+        guid,
+        dedupe_key,
+        title,
+        url,
+        author,
+        summary_text,
+        content_html,
+        published_at,
+        raw_extension_data,
+        is_read,
+        is_starred
+      )
+      values (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9::timestamptz,
+        '{}'::jsonb,
+        $10,
+        $11
+      )
+    `,
+    [
+      input.feedId,
+      input.guid,
+      input.dedupeKey,
+      input.title,
+      input.url,
+      input.author,
+      input.summaryText,
+      input.contentHtml,
+      input.publishedAt,
+      input.isRead,
+      input.isStarred
+    ]
+  );
 }
