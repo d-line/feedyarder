@@ -155,6 +155,7 @@ If the project direction changes, this file must be updated to reflect the new a
 - OpenAPI is used to generate frontend types and validation artifacts.
 - `zod` generation from the OpenAPI contract is desired.
 - Runtime response validation in the web app should happen at the API boundary using shared contract schemas from `packages/contracts`.
+- Contract schemas should be generated from `packages/contracts/openapi/feedyarder.openapi.yaml` via `npm run generate:api -w @feedyarder/contracts`, with `src/api.ts` kept as a stable facade over generated output.
 - Fever API is explicitly deferred.
 
 ## Stack Decisions

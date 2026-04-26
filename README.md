@@ -72,3 +72,18 @@ Default migrate command still runs `up`:
 ```bash
 npm run db:migrate
 ```
+
+## API Contract Codegen
+
+Contracts in `packages/contracts/src/api.generated.ts` are generated from OpenAPI:
+
+```bash
+npm run generate:api -w @feedyarder/contracts
+```
+
+`packages/contracts/src/api.ts` is a stable facade for app imports.
+To verify generated artifacts are committed and up to date:
+
+```bash
+npm run generate:api:check -w @feedyarder/contracts
+```

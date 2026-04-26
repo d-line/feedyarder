@@ -12,7 +12,7 @@
   },
   "scripts": {
     "build": "npm run build --workspaces",
-    "check": "npm run typecheck --workspaces",
+    "check": "npm run typecheck --workspaces && npm run generate:api:check -w @feedyarder/contracts",
     "db:migrate:down": "npm run migrate:down -w @feedyarder/db",
     "db:migrate:status": "npm run migrate:status -w @feedyarder/db",
     "db:migrate:up": "npm run migrate:up -w @feedyarder/db",
