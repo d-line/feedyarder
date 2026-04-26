@@ -18,7 +18,7 @@
     "generate:api": "node ./scripts/generate-api.mjs",
     "generate:api:check": "npm run generate:api && git diff --exit-code -- src/api.generated.ts",
     "lint": "eslint \"src/**/*.ts\"",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

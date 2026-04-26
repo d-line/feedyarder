@@ -87,3 +87,23 @@ To verify generated artifacts are committed and up to date:
 ```bash
 npm run generate:api:check -w @feedyarder/contracts
 ```
+
+## Testing
+
+Default workspace tests run unit/smoke suites only:
+
+```bash
+npm test
+```
+
+Run Postgres-backed integration tests explicitly:
+
+```bash
+npm run test:integration
+```
+
+Run both:
+
+```bash
+npm run test:all
+```

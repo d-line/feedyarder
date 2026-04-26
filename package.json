@@ -22,6 +22,8 @@
     "dev:worker": "npm run dev -w @feedyarder/worker",
     "lint": "npm run lint --workspaces",
     "test": "npm run test --workspaces",
+    "test:integration": "npm run test:integration -w @feedyarder/api && npm run test:integration -w @feedyarder/worker",
+    "test:all": "npm run test && npm run test:integration",
     "typecheck": "npm run typecheck --workspaces"
   }
 }
