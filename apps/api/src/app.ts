@@ -30,12 +30,17 @@ import {
 import {
   createFeedRequestSchema,
   createFolderRequestSchema,
+  idPathParamsSchema as feedManagementIdPathParamsSchema,
   listFetchEventsQuerySchema,
   updateFolderRequestSchema,
   updateFeedRequestSchema
 } from "./feed-management/schemas.js";
 import { listItems, updateItemState } from "./item-management/repository.js";
-import { listItemsQuerySchema, updateItemStateSchema } from "./item-management/schemas.js";
+import {
+  idPathParamsSchema as itemManagementIdPathParamsSchema,
+  listItemsQuerySchema,
+  updateItemStateSchema
+} from "./item-management/schemas.js";
 import { importFeedsFromOpml, listFeedsForOpmlExport } from "./opml/repository.js";
 import { importOpmlRequestSchema } from "./opml/schemas.js";
 import { buildOpmlDocument, parseOpmlDocument } from "./opml/service.js";
@@ -270,7 +275,7 @@ export function createApp(config: AppConfig) {
         return;
       }
 
-      const { id } = request.params;
+      const { id } = feedManagementIdPathParamsSchema.parse(request.params);
       const payload = updateFolderRequestSchema.parse(request.body);
       const updateInput: Parameters<typeof updateFolder>[2] = {};
 
@@ -300,7 +305,7 @@ export function createApp(config: AppConfig) {
         return;
       }
 
-      const { id } = request.params;
+      const { id } = feedManagementIdPathParamsSchema.parse(request.params);
       const deleted = await deleteFolder(pool, id);
 
       if (!deleted) {
@@ -358,7 +363,7 @@ export function createApp(config: AppConfig) {
         return;
       }
 
-      const { id } = request.params;
+      const { id } = feedManagementIdPathParamsSchema.parse(request.params);
       const payload = updateFeedRequestSchema.parse(request.body);
       const updateInput: Parameters<typeof updateFeed>[2] = {};
 
@@ -406,7 +411,7 @@ export function createApp(config: AppConfig) {
         return;
       }
 
-      const { id } = request.params;
+      const { id } = feedManagementIdPathParamsSchema.parse(request.params);
       const deleted = await deleteFeed(pool, id);
 
       if (!deleted) {
@@ -425,7 +430,7 @@ export function createApp(config: AppConfig) {
         return;
       }
 
-      const { id } = request.params;
+      const { id } = feedManagementIdPathParamsSchema.parse(request.params);
       const feed = await retryFeedNow(pool, id);
 
       if (!feed) {
@@ -521,7 +526,7 @@ export function createApp(config: AppConfig) {
         return;
       }
 
-      const { id } = request.params;
+      const { id } = itemManagementIdPathParamsSchema.parse(request.params);
       const payload = updateItemStateSchema.parse(request.body);
       const item = await updateItemState(pool, id, {
         isRead: payload.isRead ?? null,

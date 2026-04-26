@@ -45,3 +45,7 @@ export const listFetchEventsQuerySchema = z.object({
   feedId: z.string().uuid().optional(),
   limit: z.coerce.number().int().positive().max(100).default(20)
 });
+
+export const idPathParamsSchema = z.object({
+  id: z.string().uuid()
+});

@@ -782,6 +782,18 @@ describe("API integration", () => {
     );
     expect(invalidFolderPath.response.status).toBe(400);
     expect(invalidFolderPath.data.error.code).toBe("invalid_request");
+
+    const invalidItemPath = await request<{ error: { code: string; message: string } }>(
+      "/items/not-a-uuid/state",
+      {
+        body: JSON.stringify({
+          isRead: true
+        }),
+        method: "PATCH"
+      }
+    );
+    expect(invalidItemPath.response.status).toBe(400);
+    expect(invalidItemPath.data.error.code).toBe("invalid_request");
   });
 });
 
