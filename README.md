@@ -58,6 +58,8 @@ Migration framework now uses versioned `up/down` scripts in `packages/db/migrati
 
 - `0001_initial.up.sql`
 - `0001_initial.down.sql`
+- `0002_feed_title_search_index.up.sql`
+- `0002_feed_title_search_index.down.sql`
 
 Run commands from repo root:
 
@@ -71,4 +73,39 @@ Default migrate command still runs `up`:
 
 ```bash
 npm run db:migrate
+```
+
+## API Contract Codegen
+
+Contracts in `packages/contracts/src/api.generated.ts` are generated from OpenAPI:
+
+```bash
+npm run generate:api -w @feedyarder/contracts
+```
+
+`packages/contracts/src/api.ts` is a stable facade for app imports.
+To verify generated artifacts are committed and up to date:
+
+```bash
+npm run generate:api:check -w @feedyarder/contracts
+```
+
+## Testing
+
+Default workspace tests run unit/smoke suites only:
+
+```bash
+npm test
+```
+
+Run Postgres-backed integration tests explicitly:
+
+```bash
+npm run test:integration
+```
+
+Run both:
+
+```bash
+npm run test:all
 ```

@@ -98,7 +98,16 @@ export async function listItems(
     values.push(filters.query);
     const queryIndex = values.length;
     conditions.push(
-      `to_tsvector('simple', coalesce(items.title, '') || ' ' || coalesce(items.summary_text, '') || ' ' || coalesce(items.content_html, '') || ' ' || coalesce(items.author, '') || ' ' || coalesce(feeds.title, '')) @@ plainto_tsquery('simple', $${queryIndex})`
+      `(
+        to_tsvector(
+          'simple',
+          coalesce(items.title, '') || ' ' ||
+          coalesce(items.summary_text, '') || ' ' ||
+          coalesce(items.content_html, '') || ' ' ||
+          coalesce(items.author, '')
+        ) @@ plainto_tsquery('simple', $${queryIndex})
+        or to_tsvector('simple', coalesce(feeds.title, '')) @@ plainto_tsquery('simple', $${queryIndex})
+      )`
     );
   }
 

@@ -3,19 +3,31 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./openapi/feedyarder.openapi.yaml": "./openapi/feedyarder.openapi.yaml"
+  },
   "files": [
     "openapi",
     "src"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "npm run generate:api && tsc -p tsconfig.json",
+    "generate:api": "node ./scripts/generate-api.mjs",
+    "generate:api:check": "npm run generate:api && git diff --exit-code -- src/api.generated.ts",
     "lint": "eslint \"src/**/*.ts\"",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "eslint": "^9.25.0",
+    "openapi-zod-client": "^1.18.3",
     "typescript": "^5.8.3",
     "vitest": "^3.1.0"
   }

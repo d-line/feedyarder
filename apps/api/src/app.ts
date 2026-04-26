@@ -30,12 +30,17 @@ import {
 import {
   createFeedRequestSchema,
   createFolderRequestSchema,
+  idPathParamsSchema as feedManagementIdPathParamsSchema,
   listFetchEventsQuerySchema,
   updateFolderRequestSchema,
   updateFeedRequestSchema
 } from "./feed-management/schemas.js";
 import { listItems, updateItemState } from "./item-management/repository.js";
-import { listItemsQuerySchema, updateItemStateSchema } from "./item-management/schemas.js";
+import {
+  idPathParamsSchema as itemManagementIdPathParamsSchema,
+  listItemsQuerySchema,
+  updateItemStateSchema
+} from "./item-management/schemas.js";
 import { importFeedsFromOpml, listFeedsForOpmlExport } from "./opml/repository.js";
 import { importOpmlRequestSchema } from "./opml/schemas.js";
 import { buildOpmlDocument, parseOpmlDocument } from "./opml/service.js";
@@ -45,6 +50,11 @@ interface ErrorResponse {
     code: string;
     message: string;
   };
+}
+
+interface DatabaseErrorLike {
+  code?: string;
+  constraint?: string;
 }
 
 function sendError(
@@ -59,6 +69,31 @@ function sendError(
       message
     }
   });
+}
+
+function isDatabaseError(error: unknown): error is DatabaseErrorLike {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof (error as { code?: unknown }).code === "string"
+  );
+}
+
+function mapFeedMutationError(response: Response, error: unknown): Response | null {
+  if (!isDatabaseError(error)) {
+    return null;
+  }
+
+  if (error.code === "23505" && error.constraint === "feeds_feed_url_key") {
+    return sendError(response, 409, "feed_already_exists", "Feed URL already exists.");
+  }
+
+  if (error.code === "23503" && error.constraint === "feeds_folder_id_fkey") {
+    return sendError(response, 400, "folder_not_found", "Folder was not found.");
+  }
+
+  return null;
 }
 
 export function createApp(config: AppConfig) {
@@ -240,7 +275,7 @@ export function createApp(config: AppConfig) {
         return;
       }
 
-      const { id } = request.params;
+      const { id } = feedManagementIdPathParamsSchema.parse(request.params);
       const payload = updateFolderRequestSchema.parse(request.body);
       const updateInput: Parameters<typeof updateFolder>[2] = {};
 
@@ -270,7 +305,7 @@ export function createApp(config: AppConfig) {
         return;
       }
 
-      const { id } = request.params;
+      const { id } = feedManagementIdPathParamsSchema.parse(request.params);
       const deleted = await deleteFolder(pool, id);
 
       if (!deleted) {
@@ -312,6 +347,12 @@ export function createApp(config: AppConfig) {
         })
       );
     } catch (error) {
+      const mappedErrorResponse = mapFeedMutationError(response, error);
+
+      if (mappedErrorResponse) {
+        return mappedErrorResponse;
+      }
+
       next(error);
     }
   });
@@ -322,7 +363,7 @@ export function createApp(config: AppConfig) {
         return;
       }
 
-      const { id } = request.params;
+      const { id } = feedManagementIdPathParamsSchema.parse(request.params);
       const payload = updateFeedRequestSchema.parse(request.body);
       const updateInput: Parameters<typeof updateFeed>[2] = {};
 
@@ -354,6 +395,12 @@ export function createApp(config: AppConfig) {
 
       return response.json(feed);
     } catch (error) {
+      const mappedErrorResponse = mapFeedMutationError(response, error);
+
+      if (mappedErrorResponse) {
+        return mappedErrorResponse;
+      }
+
       next(error);
     }
   });
@@ -364,7 +411,7 @@ export function createApp(config: AppConfig) {
         return;
       }
 
-      const { id } = request.params;
+      const { id } = feedManagementIdPathParamsSchema.parse(request.params);
       const deleted = await deleteFeed(pool, id);
 
       if (!deleted) {
@@ -383,7 +430,7 @@ export function createApp(config: AppConfig) {
         return;
       }
 
-      const { id } = request.params;
+      const { id } = feedManagementIdPathParamsSchema.parse(request.params);
       const feed = await retryFeedNow(pool, id);
 
       if (!feed) {
@@ -479,7 +526,7 @@ export function createApp(config: AppConfig) {
         return;
       }
 
-      const { id } = request.params;
+      const { id } = itemManagementIdPathParamsSchema.parse(request.params);
       const payload = updateItemStateSchema.parse(request.body);
       const item = await updateItemState(pool, id, {
         isRead: payload.isRead ?? null,
@@ -503,6 +550,15 @@ export function createApp(config: AppConfig) {
           code: "invalid_request",
           message: "Request validation failed.",
           details: error.flatten()
+        }
+      });
+    }
+
+    if (isDatabaseError(error) && error.code === "22P02") {
+      return response.status(400).json({
+        error: {
+          code: "invalid_request",
+          message: "Request validation failed."
         }
       });
     }

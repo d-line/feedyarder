@@ -24,3 +24,7 @@ export const updateItemStateSchema = z
   .refine((value) => value.isRead !== undefined || value.isStarred !== undefined, {
     message: "At least one state field must be provided."
   });
+
+export const idPathParamsSchema = z.object({
+  id: z.string().uuid()
+});

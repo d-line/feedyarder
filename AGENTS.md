@@ -154,6 +154,8 @@ If the project direction changes, this file must be updated to reflect the new a
 - OpenAPI is required.
 - OpenAPI is used to generate frontend types and validation artifacts.
 - `zod` generation from the OpenAPI contract is desired.
+- Runtime response validation in the web app should happen at the API boundary using shared contract schemas from `packages/contracts`.
+- Contract schemas should be generated from `packages/contracts/openapi/feedyarder.openapi.yaml` via `npm run generate:api -w @feedyarder/contracts`, with `src/api.ts` kept as a stable facade over generated output.
 - Fever API is explicitly deferred.
 
 ## Stack Decisions
@@ -221,3 +223,16 @@ If the project direction changes, this file must be updated to reflect the new a
 ## Working Rule
 
 - If the user changes a requirement, revises a decision, or explicitly accepts a new tradeoff, update this file before proceeding with substantial implementation that depends on that change.
+
+## Delivery Status
+
+- v1 is accepted by the user.
+- Remaining non-blocking items are explicitly deferred to v2.
+
+## V2 Backlog (Deferred)
+
+- Fever API compatibility layer for Reeder clients.
+- Worker fetch timeout split (separate connect timeout behavior in addition to total timeout).
+- Favicon extraction improvements (homepage icon discovery via `<link rel="icon">` in addition to feed metadata and `/favicon.ico` fallback).
+- Scale validation work (load/performance testing for ~10k feeds and ~10M items).
+- UI automation coverage for keyboard shortcuts, accordion behavior, and scroll-to-top behavior.
