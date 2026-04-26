@@ -647,6 +647,142 @@ describe("API integration", () => {
     expect(missingFolderDelete.response.status).toBe(404);
     expect(missingFolderDelete.data.error.code).toBe("folder_not_found");
   });
+
+  it("returns explicit errors for feed mutation conflicts, invalid payloads, and missing resources", async () => {
+    await setupAndLogin();
+
+    const folder = await createFolderForTest({
+      position: 0,
+      title: "Mutations Folder"
+    });
+
+    const feedOne = await createFeedForTest({
+      feedUrl: "https://example.com/mutation-one.xml",
+      folderId: folder.id,
+      title: "Mutation One"
+    });
+    const feedTwo = await createFeedForTest({
+      feedUrl: "https://example.com/mutation-two.xml",
+      title: "Mutation Two"
+    });
+
+    const duplicateCreate = await request<{ error: { code: string; message: string } }>(
+      "/feeds",
+      {
+        body: JSON.stringify({
+          feedUrl: "https://example.com/mutation-one.xml"
+        }),
+        method: "POST"
+      }
+    );
+    expect(duplicateCreate.response.status).toBe(409);
+    expect(duplicateCreate.data.error.code).toBe("feed_already_exists");
+
+    const createWithMissingFolder = await request<{ error: { code: string; message: string } }>(
+      "/feeds",
+      {
+        body: JSON.stringify({
+          feedUrl: "https://example.com/mutation-three.xml",
+          folderId: "00000000-0000-0000-0000-000000000888"
+        }),
+        method: "POST"
+      }
+    );
+    expect(createWithMissingFolder.response.status).toBe(400);
+    expect(createWithMissingFolder.data.error.code).toBe("folder_not_found");
+
+    const updateWithDuplicateUrl = await request<{ error: { code: string; message: string } }>(
+      `/feeds/${feedTwo.id}`,
+      {
+        body: JSON.stringify({
+          feedUrl: "https://example.com/mutation-one.xml"
+        }),
+        method: "PATCH"
+      }
+    );
+    expect(updateWithDuplicateUrl.response.status).toBe(409);
+    expect(updateWithDuplicateUrl.data.error.code).toBe("feed_already_exists");
+
+    const updateWithMissingFolder = await request<{ error: { code: string; message: string } }>(
+      `/feeds/${feedOne.id}`,
+      {
+        body: JSON.stringify({
+          folderId: "00000000-0000-0000-0000-000000000887"
+        }),
+        method: "PATCH"
+      }
+    );
+    expect(updateWithMissingFolder.response.status).toBe(400);
+    expect(updateWithMissingFolder.data.error.code).toBe("folder_not_found");
+
+    const missingFeedUpdate = await request<{ error: { code: string; message: string } }>(
+      "/feeds/00000000-0000-0000-0000-000000000886",
+      {
+        body: JSON.stringify({
+          title: "x"
+        }),
+        method: "PATCH"
+      }
+    );
+    expect(missingFeedUpdate.response.status).toBe(404);
+    expect(missingFeedUpdate.data.error.code).toBe("feed_not_found");
+
+    const missingFolderUpdate = await request<{ error: { code: string; message: string } }>(
+      "/folders/00000000-0000-0000-0000-000000000885",
+      {
+        body: JSON.stringify({
+          title: "x"
+        }),
+        method: "PATCH"
+      }
+    );
+    expect(missingFolderUpdate.response.status).toBe(404);
+    expect(missingFolderUpdate.data.error.code).toBe("folder_not_found");
+
+    const invalidFeedUpdatePayload = await request<{ error: { code: string; message: string } }>(
+      `/feeds/${feedOne.id}`,
+      {
+        body: JSON.stringify({}),
+        method: "PATCH"
+      }
+    );
+    expect(invalidFeedUpdatePayload.response.status).toBe(400);
+    expect(invalidFeedUpdatePayload.data.error.code).toBe("invalid_request");
+
+    const invalidFolderUpdatePayload = await request<{ error: { code: string; message: string } }>(
+      `/folders/${folder.id}`,
+      {
+        body: JSON.stringify({}),
+        method: "PATCH"
+      }
+    );
+    expect(invalidFolderUpdatePayload.response.status).toBe(400);
+    expect(invalidFolderUpdatePayload.data.error.code).toBe("invalid_request");
+
+    const invalidFeedPath = await request<{ error: { code: string; message: string } }>(
+      "/feeds/not-a-uuid",
+      {
+        body: JSON.stringify({
+          title: "noop"
+        }),
+        method: "PATCH"
+      }
+    );
+    expect(invalidFeedPath.response.status).toBe(400);
+    expect(invalidFeedPath.data.error.code).toBe("invalid_request");
+
+    const invalidFolderPath = await request<{ error: { code: string; message: string } }>(
+      "/folders/not-a-uuid",
+      {
+        body: JSON.stringify({
+          title: "noop"
+        }),
+        method: "PATCH"
+      }
+    );
+    expect(invalidFolderPath.response.status).toBe(400);
+    expect(invalidFolderPath.data.error.code).toBe("invalid_request");
+  });
 });
 
 async function setupAndLogin(): Promise<void> {
