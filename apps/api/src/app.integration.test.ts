@@ -303,6 +303,32 @@ describe("API integration", () => {
     expect(protectedAfterSecondLogout.data.error.code).toBe("not_authenticated");
   });
 
+  it("rejects expired sessions and clears auth cookie", async () => {
+    await setupAndLogin();
+    const pool = requireTestPool();
+    const token = readSessionTokenFromCookie();
+
+    await pool.query(
+      `
+        update sessions
+        set expires_at = now() - interval '1 minute'
+        where session_token = $1
+      `,
+      [token]
+    );
+
+    const expiredMe = await request<{ error: { code: string; message: string } }>("/me");
+    expect(expiredMe.response.status).toBe(401);
+    expect(expiredMe.data.error.code).toBe("not_authenticated");
+    expect(expiredMe.response.headers.get("set-cookie")).toContain("Max-Age=0");
+
+    const protectedAfterExpiry = await request<{ error: { code: string; message: string } }>(
+      "/feeds"
+    );
+    expect(protectedAfterExpiry.response.status).toBe(401);
+    expect(protectedAfterExpiry.data.error.code).toBe("not_authenticated");
+  });
+
   it("imports and exports OPML with duplicate skipping", async () => {
     await setupAndLogin();
 
@@ -1052,4 +1078,15 @@ async function insertItem(
       input.isStarred
     ]
   );
+}
+
+function readSessionTokenFromCookie(): string {
+  const [cookiePair] = sessionCookie.split(";");
+  const token = cookiePair?.split("=")[1];
+
+  if (!token) {
+    throw new Error("Expected session cookie token to be present.");
+  }
+
+  return token;
 }
