@@ -538,6 +538,81 @@ describe("API integration", () => {
     expect(invalidLimit.response.status).toBe(400);
     expect(invalidLimit.data.error.code).toBe("invalid_request");
   });
+
+  it("supports feed retry endpoint semantics and returns 404 for missing feed", async () => {
+    await setupAndLogin();
+
+    const createdFeed = await createFeedForTest({
+      feedUrl: "https://example.com/retry-feed.xml",
+      title: "Retry Feed"
+    });
+
+    const paused = await request<{ id: string; isPaused: boolean }>(`/feeds/${createdFeed.id}`, {
+      body: JSON.stringify({
+        isPaused: true
+      }),
+      method: "PATCH"
+    });
+    expect(paused.response.status).toBe(200);
+    expect(paused.data.isPaused).toBe(true);
+
+    const retried = await request<{ id: string; isPaused: boolean }>(
+      `/feeds/${createdFeed.id}/retry`,
+      {
+        method: "POST"
+      }
+    );
+    expect(retried.response.status).toBe(200);
+    expect(retried.data.id).toBe(createdFeed.id);
+    expect(retried.data.isPaused).toBe(false);
+
+    const missingRetry = await request<{ error: { code: string; message: string } }>(
+      "/feeds/00000000-0000-0000-0000-000000000999/retry",
+      {
+        method: "POST"
+      }
+    );
+    expect(missingRetry.response.status).toBe(404);
+    expect(missingRetry.data.error.code).toBe("feed_not_found");
+  });
+
+  it("deletes folders, unassigns their feeds, and returns 404 for missing folder", async () => {
+    await setupAndLogin();
+
+    const folder = await createFolderForTest({
+      position: 0,
+      title: "Delete Target Folder"
+    });
+
+    const feedInFolder = await createFeedForTest({
+      feedUrl: "https://example.com/folder-target.xml",
+      folderId: folder.id,
+      title: "Folder Target Feed"
+    });
+
+    const deleted = await request<unknown>(`/folders/${folder.id}`, {
+      method: "DELETE"
+    });
+    expect(deleted.response.status).toBe(204);
+
+    const foldersAfterDelete = await request<Array<{ id: string; title: string }>>("/folders");
+    expect(foldersAfterDelete.response.status).toBe(200);
+    expect(foldersAfterDelete.data.some((entry) => entry.id === folder.id)).toBe(false);
+
+    const feedsAfterDelete = await request<Array<{ id: string; folderId: string | null }>>("/feeds");
+    expect(feedsAfterDelete.response.status).toBe(200);
+    const updatedFeed = feedsAfterDelete.data.find((entry) => entry.id === feedInFolder.id);
+    expect(updatedFeed?.folderId).toBeNull();
+
+    const missingFolderDelete = await request<{ error: { code: string; message: string } }>(
+      "/folders/00000000-0000-0000-0000-000000000777",
+      {
+        method: "DELETE"
+      }
+    );
+    expect(missingFolderDelete.response.status).toBe(404);
+    expect(missingFolderDelete.data.error.code).toBe("folder_not_found");
+  });
 });
 
 async function setupAndLogin(): Promise<void> {
