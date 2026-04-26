@@ -500,6 +500,44 @@ describe("API integration", () => {
     expect(secondPage.data.items[0]?.title).toBe("Compiler notes");
     expect(secondPage.data.nextCursor).toBeNull();
   });
+
+  it("rejects invalid items query parameters with validation errors", async () => {
+    await setupAndLogin();
+
+    const invalidFeedId = await request<{ error: { code: string; message: string } }>(
+      "/items?feedId=not-a-uuid&limit=20"
+    );
+    expect(invalidFeedId.response.status).toBe(400);
+    expect(invalidFeedId.data.error.code).toBe("invalid_request");
+
+    const invalidReadValue = await request<{ error: { code: string; message: string } }>(
+      "/items?read=maybe&limit=20"
+    );
+    expect(invalidReadValue.response.status).toBe(400);
+    expect(invalidReadValue.data.error.code).toBe("invalid_request");
+
+    const invalidLimit = await request<{ error: { code: string; message: string } }>(
+      "/items?limit=101"
+    );
+    expect(invalidLimit.response.status).toBe(400);
+    expect(invalidLimit.data.error.code).toBe("invalid_request");
+  });
+
+  it("rejects invalid fetch-events query parameters with validation errors", async () => {
+    await setupAndLogin();
+
+    const invalidFeedId = await request<{ error: { code: string; message: string } }>(
+      "/fetch-events?feedId=bad-id&limit=10"
+    );
+    expect(invalidFeedId.response.status).toBe(400);
+    expect(invalidFeedId.data.error.code).toBe("invalid_request");
+
+    const invalidLimit = await request<{ error: { code: string; message: string } }>(
+      "/fetch-events?limit=0"
+    );
+    expect(invalidLimit.response.status).toBe(400);
+    expect(invalidLimit.data.error.code).toBe("invalid_request");
+  });
 });
 
 async function setupAndLogin(): Promise<void> {
