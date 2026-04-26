@@ -1,26 +1,35 @@
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
-  errorResponseSchema,
-  fetchEventListResponseSchema,
-  feedResponseSchema,
-  feedListResponseSchema,
-  folderListResponseSchema,
-  folderResponseSchema,
-  itemListResponseSchema,
-  itemResponseSchema,
-  opmlImportResponseSchema,
-  setupStatusResponseSchema,
-  userResponseSchema,
-  type ErrorResponse,
   type FetchEvent,
   type Feed,
   type Folder,
   type Item,
-  type ItemListResponse,
   type OpmlImportResponse,
   type User
 } from "@feedyarder/contracts";
+import {
+  createFeed,
+  createFolder,
+  deleteFeed,
+  deleteFolder,
+  exportOpml,
+  fetchCurrentUser,
+  fetchSetupStatus,
+  getApiErrorMessage,
+  importOpml,
+  listFeeds,
+  listFetchEvents,
+  listFolders,
+  listItems,
+  login,
+  logout,
+  retryFeed,
+  setupUser,
+  updateFeed,
+  updateFolder,
+  updateItemState
+} from "./api-client.js";
 import { sanitizeFeedHtml } from "./sanitize-feed-html.js";
 
 interface AppBootstrapState {
@@ -58,9 +67,7 @@ export function App() {
         isLoading: true
       }));
 
-      const setupStatus = await apiRequest("/setup/status", {
-        schema: setupStatusResponseSchema
-      });
+      const setupStatus = await fetchSetupStatus();
       const user = await fetchCurrentUser();
 
       setState({
@@ -80,11 +87,7 @@ export function App() {
   }
 
   async function handleSetup(username: string, password: string): Promise<void> {
-    const user = await apiRequest("/setup", {
-      body: JSON.stringify({ password, username }),
-      method: "POST",
-      schema: userResponseSchema
-    });
+    const user = await setupUser({ password, username });
 
     setState({
       errorMessage: null,
@@ -95,11 +98,7 @@ export function App() {
   }
 
   async function handleLogin(username: string, password: string): Promise<void> {
-    const user = await apiRequest("/session", {
-      body: JSON.stringify({ password, username }),
-      method: "POST",
-      schema: userResponseSchema
-    });
+    const user = await login({ password, username });
 
     setState((current) => ({
       ...current,
@@ -109,9 +108,7 @@ export function App() {
   }
 
   async function handleLogout(): Promise<void> {
-    await apiRequest("/session", {
-      method: "DELETE"
-    });
+    await logout();
 
     setState((current) => ({
       ...current,
@@ -543,8 +540,8 @@ function ReaderRoute() {
       setErrorMessage(null);
 
       const [foldersResponse, feedsResponse, itemResponse] = await Promise.all([
-        apiRequest("/folders", { schema: folderListResponseSchema }),
-        apiRequest("/feeds", { schema: feedListResponseSchema }),
+        listFolders(),
+        listFeeds(),
         loadItemsPage(reset ? null : nextCursor)
       ]);
 
@@ -560,58 +557,29 @@ function ReaderRoute() {
     }
   }
 
-  async function loadItemsPage(cursor: string | null): Promise<ItemListResponse> {
-    const params = new URLSearchParams();
-    params.set("limit", "20");
-
-    if (cursor) {
-      params.set("cursor", cursor);
-    }
-
-    if (filters.feedId) {
-      params.set("feedId", filters.feedId);
-    }
-
-    if (filters.folderId) {
-      params.set("folderId", filters.folderId);
-    }
-
-    if (filters.readMode === "unread") {
-      params.set("read", "false");
-    }
-
-    if (filters.starredOnly) {
-      params.set("starred", "true");
-    }
-
-    if (filters.q) {
-      params.set("q", filters.q);
-    }
-
-    return apiRequest(`/items?${params.toString()}`, {
-      schema: itemListResponseSchema
+  async function loadItemsPage(cursor: string | null) {
+    return listItems({
+      cursor,
+      limit: 20,
+      ...(filters.feedId ? { feedId: filters.feedId } : {}),
+      ...(filters.folderId ? { folderId: filters.folderId } : {}),
+      ...(filters.q ? { q: filters.q } : {}),
+      ...(filters.readMode === "unread" ? { read: false } : {}),
+      ...(filters.starredOnly ? { starred: true } : {})
     });
   }
 
   async function handleToggleRead(item: Item): Promise<void> {
-    const updated = await apiRequest(`/items/${item.id}/state`, {
-      body: JSON.stringify({
-        isRead: !item.isRead
-      }),
-      method: "PATCH",
-      schema: itemResponseSchema
+    const updated = await updateItemState(item.id, {
+      isRead: !item.isRead
     });
 
     setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
   }
 
   async function handleToggleStar(item: Item): Promise<void> {
-    const updated = await apiRequest(`/items/${item.id}/state`, {
-      body: JSON.stringify({
-        isStarred: !item.isStarred
-      }),
-      method: "PATCH",
-      schema: itemResponseSchema
+    const updated = await updateItemState(item.id, {
+      isStarred: !item.isStarred
     });
 
     setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
@@ -988,9 +956,9 @@ function AdminRoute() {
       setErrorMessage(null);
 
       const [foldersResponse, feedsResponse, fetchEventsResponse] = await Promise.all([
-        apiRequest("/folders", { schema: folderListResponseSchema }),
-        apiRequest("/feeds", { schema: feedListResponseSchema }),
-        apiRequest("/fetch-events?limit=15", { schema: fetchEventListResponseSchema })
+        listFolders(),
+        listFeeds(),
+        listFetchEvents(15)
       ]);
 
       setFolders(foldersResponse);
@@ -1009,13 +977,9 @@ function AdminRoute() {
     setErrorMessage(null);
 
     try {
-      const createdFolder = await apiRequest("/folders", {
-        body: JSON.stringify({
-          position: folders.length,
-          title: folderTitle
-        }),
-        method: "POST",
-        schema: folderResponseSchema
+      const createdFolder = await createFolder({
+        position: folders.length,
+        title: folderTitle
       });
 
       setFolders((current) => sortFolders([...current, createdFolder]));
@@ -1034,15 +998,11 @@ function AdminRoute() {
     setErrorMessage(null);
 
     try {
-      const createdFeed = await apiRequest("/feeds", {
-        body: JSON.stringify({
-          feedUrl,
-          folderId: folderId || null,
-          siteUrl: siteUrl || null,
-          title: feedTitle || null
-        }),
-        method: "POST",
-        schema: feedResponseSchema
+      const createdFeed = await createFeed({
+        feedUrl,
+        folderId: folderId || null,
+        siteUrl: siteUrl || null,
+        title: feedTitle || null
       });
 
       setFeeds((current) => [...current, createdFeed]);
@@ -1069,13 +1029,9 @@ function AdminRoute() {
     setErrorMessage(null);
 
     try {
-      const updatedFolder = await apiRequest(`/folders/${selectedFolder.id}`, {
-        body: JSON.stringify({
-          position: Number.parseInt(editFolderPosition, 10),
-          title: editFolderTitle.trim()
-        }),
-        method: "PATCH",
-        schema: folderResponseSchema
+      const updatedFolder = await updateFolder(selectedFolder.id, {
+        position: Number.parseInt(editFolderPosition, 10),
+        title: editFolderTitle.trim()
       });
 
       setFolders((current) =>
@@ -1098,9 +1054,7 @@ function AdminRoute() {
     setErrorMessage(null);
 
     try {
-      await apiRequest(`/folders/${selectedFolder.id}`, {
-        method: "DELETE"
-      });
+      await deleteFolder(selectedFolder.id);
 
       setFolders((current) => current.filter((entry) => entry.id !== selectedFolder.id));
       setFolderId((current) => (current === selectedFolder.id ? "" : current));
@@ -1121,12 +1075,8 @@ function AdminRoute() {
     try {
       setErrorMessage(null);
 
-      const updatedFeed = await apiRequest(`/feeds/${feed.id}`, {
-        body: JSON.stringify({
-          isPaused: !feed.isPaused
-        }),
-        method: "PATCH",
-        schema: feedResponseSchema
+      const updatedFeed = await updateFeed(feed.id, {
+        isPaused: !feed.isPaused
       });
 
       setFeeds((current) => current.map((entry) => (entry.id === updatedFeed.id ? updatedFeed : entry)));
@@ -1142,10 +1092,7 @@ function AdminRoute() {
     try {
       setErrorMessage(null);
 
-      const updatedFeed = await apiRequest(`/feeds/${feed.id}/retry`, {
-        method: "POST",
-        schema: feedResponseSchema
-      });
+      const updatedFeed = await retryFeed(feed.id);
 
       setFeeds((current) => current.map((entry) => (entry.id === updatedFeed.id ? updatedFeed : entry)));
       if (selectedFeedId === updatedFeed.id) {
@@ -1168,15 +1115,11 @@ function AdminRoute() {
     setErrorMessage(null);
 
     try {
-      const updatedFeed = await apiRequest(`/feeds/${selectedFeed.id}`, {
-        body: JSON.stringify({
-          feedUrl: editFeedUrl.trim(),
-          folderId: editFolderId || null,
-          siteUrl: editSiteUrl.trim() || null,
-          title: editFeedTitle.trim() || null
-        }),
-        method: "PATCH",
-        schema: feedResponseSchema
+      const updatedFeed = await updateFeed(selectedFeed.id, {
+        feedUrl: editFeedUrl.trim(),
+        folderId: editFolderId || null,
+        siteUrl: editSiteUrl.trim() || null,
+        title: editFeedTitle.trim() || null
       });
 
       setFeeds((current) => current.map((entry) => (entry.id === updatedFeed.id ? updatedFeed : entry)));
@@ -1197,9 +1140,7 @@ function AdminRoute() {
     setErrorMessage(null);
 
     try {
-      await apiRequest(`/feeds/${selectedFeed.id}`, {
-        method: "DELETE"
-      });
+      await deleteFeed(selectedFeed.id);
 
       setFeeds((current) => current.filter((entry) => entry.id !== selectedFeed.id));
       setFetchEvents((current) => current.filter((event) => event.feedId !== selectedFeed.id));
@@ -1217,13 +1158,7 @@ function AdminRoute() {
     setOpmlResult(null);
 
     try {
-      const result = await apiRequest("/opml/import", {
-        body: JSON.stringify({
-          opml: opmlText
-        }),
-        method: "POST",
-        schema: opmlImportResponseSchema
-      });
+      const result = await importOpml(opmlText);
 
       setOpmlResult(result);
       setOpmlText("");
@@ -1251,7 +1186,7 @@ function AdminRoute() {
       setIsExportingOpml(true);
       setErrorMessage(null);
 
-      const opml = await apiTextRequest("/opml/export");
+      const opml = await exportOpml();
       const blob = new Blob([opml], {
         type: "application/xml;charset=utf-8"
       });
@@ -1700,120 +1635,8 @@ function AdminRoute() {
   );
 }
 
-async function fetchCurrentUser(): Promise<User | null> {
-  try {
-    return await apiRequest("/me", {
-      schema: userResponseSchema
-    });
-  } catch (error) {
-    if (isApiErrorCode(error, "not_authenticated")) {
-      return null;
-    }
-
-    throw error;
-  }
-}
-
-interface ApiSchema<T> {
-  parse: (input: unknown) => T;
-}
-
-interface ApiRequestOptions<T> extends Omit<RequestInit, "body"> {
-  body?: BodyInit | null;
-  schema?: ApiSchema<T>;
-}
-
-async function apiRequest<T>(path: string, options?: ApiRequestOptions<T>): Promise<T> {
-  const { schema, ...init } = options ?? {};
-  const headers = new Headers(init.headers);
-
-  if (options?.body !== undefined && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-
-  const requestInit: RequestInit = {
-    credentials: "include",
-    ...init,
-    headers
-  };
-
-  if (options?.body !== undefined) {
-    requestInit.body = options.body;
-  }
-
-  const response = await fetch(`${apiBaseUrl}${path}`, requestInit);
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  const text = await response.text();
-  const data = text.length > 0 ? (JSON.parse(text) as unknown) : undefined;
-
-  if (!response.ok) {
-    const parsedError = errorResponseSchema.safeParse(data);
-
-    if (parsedError.success) {
-      throw parsedError.data;
-    }
-
-    throw data;
-  }
-
-  if (schema) {
-    return schema.parse(data);
-  }
-
-  return data as T;
-}
-
-async function apiTextRequest(path: string, init?: RequestInit): Promise<string> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    credentials: "include",
-    ...init
-  });
-
-  const text = await response.text();
-
-  if (!response.ok) {
-    let parsed: unknown = text;
-
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      // Keep plain text as-is.
-    }
-
-    throw parsed;
-  }
-
-  return text;
-}
-
 function getErrorMessage(error: unknown): string {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "error" in error &&
-    typeof (error as ErrorResponse).error?.message === "string"
-  ) {
-    return (error as ErrorResponse).error?.message ?? "Unexpected API error.";
-  }
-
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return "Unexpected error.";
-}
-
-function isApiErrorCode(error: unknown, code: string): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "error" in error &&
-    (error as ErrorResponse).error?.code === code
-  );
+  return getApiErrorMessage(error);
 }
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
