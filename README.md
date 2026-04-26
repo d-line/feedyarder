@@ -58,6 +58,8 @@ Migration framework now uses versioned `up/down` scripts in `packages/db/migrati
 
 - `0001_initial.up.sql`
 - `0001_initial.down.sql`
+- `0002_feed_title_search_index.up.sql`
+- `0002_feed_title_search_index.down.sql`
 
 Run commands from repo root:
 
