@@ -151,9 +151,9 @@ export function normalizeYtDlpVideo(
     return null;
   }
 
-  if (isSubscriberOnlyVideo(video)) {
+  if (isMemberOnlyVideo(video)) {
     console.log(
-      `Backfill YouTube item skipped_subscriber_only | sourceId=${video.id} | title=${video.title ?? "null"} | availability=${video.availability ?? "unknown"}`
+      `Backfill YouTube item skipped_member_only | sourceId=${video.id} | title=${video.title ?? "null"} | availability=${video.availability ?? "unknown"}`
     );
     return null;
   }
@@ -267,8 +267,8 @@ async function runYtDlp(
   if (exit.code !== 0) {
     const stderr = stderrChunks.join("").trim();
 
-    if (isIgnorableSubscriberOnlyFailure(stderr)) {
-      console.log(`Backfill yt-dlp skipped subscriber-only failures for ${url}`);
+    if (isIgnorableMemberOnlyFailure(stderr)) {
+      console.log(`Backfill yt-dlp skipped member-only failures for ${url}`);
       return;
     }
 
@@ -498,28 +498,33 @@ function parsePublishedAt(video: YtDlpVideo): string | null {
   return null;
 }
 
-function isSubscriberOnlyVideo(video: YtDlpVideo): boolean {
-  const availability = video.availability?.toLowerCase() ?? "";
-  const title = video.title?.toLowerCase() ?? "";
-  const description = video.description?.toLowerCase() ?? "";
+function isMemberOnlyVideo(video: YtDlpVideo): boolean {
+  const availability = normalizeAvailability(video.availability);
 
-  return [availability, title, description].some(
-    (value) =>
-      value.includes("subscriber") ||
-      value.includes("member-only") ||
-      value.includes("members only") ||
-      value.includes("membership")
+  return (
+    availability === "subscriber_only" ||
+    availability === "member_only" ||
+    availability === "members_only" ||
+    availability === "membership_only" ||
+    availability.includes("member_only") ||
+    availability.includes("members_only")
   );
 }
 
-function isIgnorableSubscriberOnlyFailure(stderr: string): boolean {
+function normalizeAvailability(availability: string | undefined): string {
+  return availability?.trim().toLowerCase().replace(/[\s-]+/g, "_") ?? "";
+}
+
+function isIgnorableMemberOnlyFailure(stderr: string): boolean {
   const normalized = stderr.toLowerCase();
 
   return (
-    normalized.includes("subscriber") ||
     normalized.includes("member-only") ||
+    normalized.includes("members-only") ||
+    normalized.includes("member only") ||
     normalized.includes("members only") ||
-    normalized.includes("membership")
+    normalized.includes("membership") ||
+    normalized.includes("join this channel")
   );
 }
 

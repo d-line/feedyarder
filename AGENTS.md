@@ -119,7 +119,7 @@ If the project direction changes, this file must be updated to reflect the new a
 
 - Use a separate worker process for fetching and ingest.
 - Provide a worker backfill target for RuTracker forum feeds that takes a feed id, crawls the forum pagination, and inserts missing topics through normal item dedupe.
-- Provide a worker backfill target for YouTube feeds that takes a feed id, uses the `yt-dlp` CLI to extract `/videos` and `/shorts`, supports cookies and explicit JavaScript runtime configuration, skips subscriber/member-only videos, and stores full yt-dlp metadata in item `raw_extension_data`.
+- Provide a worker backfill target for YouTube feeds that takes a feed id, uses the `yt-dlp` CLI to extract `/videos` and `/shorts`, supports cookies and explicit JavaScript runtime configuration, skips channel member-only videos, and stores full yt-dlp metadata in item `raw_extension_data`.
 - Start with an hourly fetch interval per feed.
 - Use adaptive scheduling:
   - increase interval when feeds are inactive

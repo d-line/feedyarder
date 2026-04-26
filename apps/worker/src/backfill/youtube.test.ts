@@ -92,7 +92,7 @@ describe("normalizeYtDlpVideo", () => {
     expect(item?.publishedAt).toBe("2027-01-15T08:00:00.000Z");
   });
 
-  it("skips subscriber-only videos", () => {
+  it("skips member-only videos", () => {
     const item = normalizeYtDlpVideo(
       {
         availability: "subscriber_only",
@@ -106,6 +106,26 @@ describe("normalizeYtDlpVideo", () => {
     );
 
     expect(item).toBeNull();
+  });
+
+  it("does not skip public videos with subscriber or membership text", () => {
+    const item = normalizeYtDlpVideo(
+      {
+        availability: "public",
+        description: "Subscribe for updates. Channel membership links are in the description.",
+        id: "sH9bgApMQbU",
+        timestamp: 1_700_000_000,
+        title: "Subscriber Q&A and membership notes",
+        webpage_url: "https://www.youtube.com/watch?v=sH9bgApMQbU"
+      },
+      "videos",
+      "feed-id"
+    );
+
+    expect(item).toMatchObject({
+      guid: "yt:video:sH9bgApMQbU",
+      title: "Subscriber Q&A and membership notes"
+    });
   });
 
   it("matches YouTube Atom feed dedupe keys", () => {
