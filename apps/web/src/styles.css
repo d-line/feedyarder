@@ -325,6 +325,10 @@ button:disabled {
 }
 
 .story-collapsed-button {
+  display: grid;
+  grid-template-columns: 0.75rem 8ch minmax(0, 20fr) minmax(0, 50fr) minmax(6rem, 12fr);
+  align-items: center;
+  gap: 0.75rem;
   width: 100%;
   text-align: left;
   background: transparent;
@@ -337,23 +341,26 @@ button:disabled {
   background: rgba(110, 231, 162, 0.05);
 }
 
+.story-collapsed-button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .story-id,
 .story-feed,
 .story-time {
   color: var(--muted);
 }
 
+.story-time {
+  text-align: right;
+}
+
 .story-active-marker {
   color: var(--accent);
   min-width: 0.75rem;
-}
-
-.story-feed {
-  min-width: 9rem;
-}
-
-.story-title {
-  flex: 1 1 18rem;
 }
 
 .story-expanded {
@@ -365,6 +372,12 @@ button:disabled {
   padding-top: 0.85rem;
   color: var(--muted);
   font-size: 0.86rem;
+}
+
+.story-action-date {
+  margin-left: auto;
+  color: var(--muted);
+  text-align: right;
 }
 
 .story-body {
