@@ -5,6 +5,7 @@ import path from "node:path";
 
 import {
   buildYtDlpArgs,
+  getIgnorableYtDlpFailureReason,
   normalizeYtDlpVideo,
   resolveYouTubeBackfillUrls
 } from "./youtube.js";
@@ -206,5 +207,25 @@ describe("buildYtDlpArgs", () => {
       process.env.YT_DLP_REMOTE_COMPONENTS = previousRemoteComponents;
       rmSync(tempDir, { force: true, recursive: true });
     }
+  });
+});
+
+describe("getIgnorableYtDlpFailureReason", () => {
+  it("ignores missing shorts tabs", () => {
+    expect(
+      getIgnorableYtDlpFailureReason(
+        "https://www.youtube.com/channel/UCCBVCTuk6uJrN3iFV_3vurg/shorts",
+        "ERROR: [youtube:tab] UCCBVCTuk6uJrN3iFV_3vurg: This channel does not have a shorts tab"
+      )
+    ).toBe("missing_shorts_tab");
+  });
+
+  it("does not ignore missing shorts tab text for non-shorts URLs", () => {
+    expect(
+      getIgnorableYtDlpFailureReason(
+        "https://www.youtube.com/channel/UCCBVCTuk6uJrN3iFV_3vurg/videos",
+        "ERROR: [youtube:tab] UCCBVCTuk6uJrN3iFV_3vurg: This channel does not have a shorts tab"
+      )
+    ).toBeNull();
   });
 });
