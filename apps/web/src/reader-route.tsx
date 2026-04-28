@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { type Feed, type Folder, type Item } from "@feedyarder/contracts";
+import moment from "moment";
 import {
   getApiErrorMessage,
   listFeeds,
@@ -496,6 +497,7 @@ export function ReaderRoute() {
                         open source
                       </a>
                     ) : null}
+                    <span className="story-action-date">pub:{formatItemFullTimestamp(item)}</span>
                   </div>
                 </div>
               ) : null}
@@ -541,10 +543,18 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   return tagName === "input" || tagName === "textarea" || tagName === "select";
 }
 
+function formatRelativeTimestamp(value: string): string {
+  return moment(value).fromNow();
+}
+
 function formatTimestamp(value: string): string {
   return new Date(value).toLocaleString();
 }
 
 function formatItemTimestamp(item: Item): string {
+  return item.publishedAt ? formatRelativeTimestamp(item.publishedAt) : "(no pub date)";
+}
+
+function formatItemFullTimestamp(item: Item): string {
   return item.publishedAt ? formatTimestamp(item.publishedAt) : "(no pub date)";
 }
