@@ -29,6 +29,8 @@ export interface YouTubeBackfillSummary {
   skippedCount: number;
 }
 
+export type IgnorableYtDlpFailureReason = "member_only" | "missing_shorts_tab";
+
 interface YtDlpVideo {
   availability?: string;
   channel?: string;
@@ -266,9 +268,10 @@ async function runYtDlp(
 
   if (exit.code !== 0) {
     const stderr = stderrChunks.join("").trim();
+    const ignorableReason = getIgnorableYtDlpFailureReason(url, stderr);
 
-    if (isIgnorableMemberOnlyFailure(stderr)) {
-      console.log(`Backfill yt-dlp skipped member-only failures for ${url}`);
+    if (ignorableReason) {
+      console.log(`Backfill yt-dlp skipped ${ignorableReason} failure for ${url}`);
       return;
     }
 
@@ -513,6 +516,27 @@ function isMemberOnlyVideo(video: YtDlpVideo): boolean {
 
 function normalizeAvailability(availability: string | undefined): string {
   return availability?.trim().toLowerCase().replace(/[\s-]+/g, "_") ?? "";
+}
+
+export function getIgnorableYtDlpFailureReason(
+  url: string,
+  stderr: string
+): IgnorableYtDlpFailureReason | null {
+  if (isMissingShortsTabFailure(url, stderr)) {
+    return "missing_shorts_tab";
+  }
+
+  if (isIgnorableMemberOnlyFailure(stderr)) {
+    return "member_only";
+  }
+
+  return null;
+}
+
+function isMissingShortsTabFailure(url: string, stderr: string): boolean {
+  const normalized = stderr.toLowerCase();
+
+  return url.endsWith("/shorts") && normalized.includes("does not have a shorts tab");
 }
 
 function isIgnorableMemberOnlyFailure(stderr: string): boolean {
