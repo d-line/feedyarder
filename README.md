@@ -139,3 +139,15 @@ YouTube items are inserted as yt-dlp streams them. The default insert batch size
 ```bash
 YT_DLP_BATCH_SIZE=250 npm run backfill -- <feed-id>
 ```
+
+The same backfill target also supports Adafruit Blog feeds. It crawls the blog root and numbered archive pages:
+
+```bash
+npm run backfill -- <adafruit-feed-id>
+```
+
+Adafruit Learn feeds are backfilled by crawling New Guides, discovering categories, crawling each category's pagination, and fetching each unique guide page for publication metadata:
+
+```bash
+npm run backfill -- <learn-feed-id>
+```
