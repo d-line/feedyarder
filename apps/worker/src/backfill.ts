@@ -1,5 +1,17 @@
 import { getConfig } from "./config.js";
 import { getPool } from "./db/pool.js";
+import {
+  buildAdafruitPageUrl,
+  fetchAdafruitBackfillPage,
+  resolveAdafruitRootUrl
+} from "./backfill/adafruit.js";
+import {
+  fetchLearnCategories,
+  fetchLearnCategoryPage,
+  fetchLearnGuideDetail,
+  normalizeLearnGuide,
+  resolveLearnRootUrl
+} from "./backfill/learn.js";
 import { fetchRutrackerBackfillPage } from "./backfill/rutracker.js";
 import {
   collectYouTubeBackfillItemBatches,
@@ -14,7 +26,7 @@ import type { NormalizedItem } from "./fetch/types.js";
 import type { Pool } from "pg";
 
 const defaultRequestDelayMs = 500;
-const maxPages = 1_000;
+const maxPages = 10_000;
 
 async function run(): Promise<void> {
   const feedId = process.argv[2];
@@ -35,7 +47,11 @@ async function run(): Promise<void> {
 
     const result = isYouTubeFeed(feed)
       ? await backfillYouTubeFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-      : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
+      : isAdafruitFeed(feed)
+        ? await backfillAdafruitFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
+        : isLearnFeed(feed)
+          ? await backfillLearnFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
+          : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
 
     console.log(
       `Backfill complete for ${feed.title ?? feed.feedUrl}: source=${result.source} pages=${result.pageCount} discovered=${result.discoveredCount} inserted=${result.insertedCount}`
@@ -102,6 +118,124 @@ async function backfillRutrackerFeed(
   return {
     ...result,
     source: "rutracker"
+  };
+}
+
+async function backfillAdafruitFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const startUrl = resolveAdafruitBackfillStartUrl(feed);
+  let discoveredCount = 0;
+  let insertedCount = 0;
+  let pageCount = 0;
+
+  for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
+    const pageUrl = buildAdafruitPageUrl(startUrl, pageNumber);
+    console.log(`Backfill crawling Adafruit page ${pageNumber}: ${pageUrl}`);
+
+    const page = await fetchAdafruitBackfillPage(pageUrl, feed.id, timeoutMs);
+    pageCount += 1;
+    console.log(`Backfill Adafruit page parsed: page=${page.pageNumber} items=${page.items.length}`);
+
+    if (page.items.length === 0) {
+      break;
+    }
+
+    discoveredCount += page.items.length;
+
+    for (const result of await insertItemsWithResults(pool, feed.id, page.items)) {
+      console.log(formatInsertDebugLine(result.item, result.inserted));
+
+      if (result.inserted) {
+        insertedCount += 1;
+      }
+    }
+
+    await sleep(defaultRequestDelayMs);
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount,
+    source: "adafruit"
+  };
+}
+
+async function backfillLearnFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const startUrl = resolveLearnBackfillStartUrl(feed);
+  const categories = await fetchLearnCategories(startUrl, timeoutMs);
+  const latestCategory = {
+    title: "New Guides",
+    url: new URL("/guides/latest", startUrl).toString()
+  };
+  const seenGuideUrls = new Set<string>();
+  let discoveredCount = 0;
+  let insertedCount = 0;
+  let pageCount = 0;
+
+  console.log(`Backfill Learn categories discovered: count=${categories.length}`);
+
+  for (const category of [latestCategory, ...categories]) {
+    let pageUrl: string | null = category.url;
+
+    while (pageUrl && pageCount < maxPages) {
+      console.log(`Backfill crawling Learn category=${category.title} pageUrl=${pageUrl}`);
+
+      const page = await fetchLearnCategoryPage(pageUrl, timeoutMs);
+      pageCount += 1;
+      console.log(
+        `Backfill Learn page parsed: category=${category.title} page=${page.pageNumber} guides=${page.guides.length} next=${page.nextPageUrl ?? "none"}`
+      );
+
+      const items: NormalizedItem[] = [];
+
+      for (const guide of page.guides) {
+        if (seenGuideUrls.has(guide.url)) {
+          console.log(`Backfill Learn guide skipped_duplicate_discovery | url=${guide.url} | title=${guide.title}`);
+          continue;
+        }
+
+        seenGuideUrls.add(guide.url);
+        console.log(`Backfill Learn guide detail fetching | url=${guide.url} | title=${guide.title}`);
+
+        const detail = await fetchLearnGuideDetail(guide.url, timeoutMs);
+        const item = normalizeLearnGuide(guide, detail, feed.id, category, pageUrl);
+        console.log(
+          `Backfill Learn guide normalized | sourceId=${readSourceId(item) ?? "unknown"} | publishedAt=${item.publishedAt ?? "null"} | title=${item.title ?? "null"} | url=${item.url ?? "null"}`
+        );
+        items.push(item);
+      }
+
+      discoveredCount += items.length;
+
+      for (const result of await insertItemsWithResults(pool, feed.id, items)) {
+        console.log(formatInsertDebugLine(result.item, result.inserted));
+
+        if (result.inserted) {
+          insertedCount += 1;
+        }
+      }
+
+      pageUrl = page.nextPageUrl;
+
+      if (pageUrl) {
+        await sleep(defaultRequestDelayMs);
+      }
+    }
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount,
+    source: "adafruit-learn"
   };
 }
 
@@ -190,6 +324,28 @@ function readSourceId(item: NormalizedItem): string | null {
     return youtubeData.videoId;
   }
 
+  const adafruitData = item.rawExtensionData.adafruit;
+
+  if (
+    adafruitData &&
+    typeof adafruitData === "object" &&
+    "postId" in adafruitData &&
+    typeof adafruitData.postId === "string"
+  ) {
+    return adafruitData.postId;
+  }
+
+  const adafruitLearnData = item.rawExtensionData.adafruitLearn;
+
+  if (
+    adafruitLearnData &&
+    typeof adafruitLearnData === "object" &&
+    "guideId" in adafruitLearnData &&
+    typeof adafruitLearnData.guideId === "string"
+  ) {
+    return adafruitLearnData.guideId;
+  }
+
   return item.guid?.replace(/^rutracker-topic:/, "") ?? null;
 }
 
@@ -239,6 +395,38 @@ function resolveRutrackerBackfillStartUrl(feed: FeedBackfillTarget): string {
   );
 }
 
+function resolveAdafruitBackfillStartUrl(feed: FeedBackfillTarget): string {
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return resolveAdafruitRootUrl(candidate).toString();
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to the Adafruit blog.`);
+}
+
+function resolveLearnBackfillStartUrl(feed: FeedBackfillTarget): string {
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return resolveLearnRootUrl(candidate).toString();
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to Adafruit Learn.`);
+}
+
 function isYouTubeFeed(feed: FeedBackfillTarget): boolean {
   return [feed.siteUrl, feed.feedUrl].some((candidate) => {
     if (!candidate) {
@@ -248,6 +436,36 @@ function isYouTubeFeed(feed: FeedBackfillTarget): boolean {
     try {
       const url = new URL(candidate);
       return url.hostname.includes("youtube.com") || url.hostname === "youtu.be";
+    } catch {
+      return false;
+    }
+  });
+}
+
+function isAdafruitFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+
+    try {
+      const url = new URL(candidate);
+      return url.hostname === "blog.adafruit.com";
+    } catch {
+      return false;
+    }
+  });
+}
+
+function isLearnFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+
+    try {
+      const url = new URL(candidate);
+      return url.hostname === "learn.adafruit.com";
     } catch {
       return false;
     }

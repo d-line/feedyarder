@@ -14,6 +14,10 @@ where is_paused = false
     or site_url ilike '%youtu.be/%'
     or feed_url ilike '%rutracker.org/%'
     or site_url ilike '%rutracker.org/%'
+    or feed_url ilike '%blog.adafruit.com/%'
+    or site_url ilike '%blog.adafruit.com/%'
+    or feed_url ilike '%learn.adafruit.com/%'
+    or site_url ilike '%learn.adafruit.com/%'
   )
 order by created_at asc, id asc
 "}"
