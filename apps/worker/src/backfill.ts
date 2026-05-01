@@ -26,6 +26,8 @@ import type { NormalizedItem } from "./fetch/types.js";
 import type { Pool } from "pg";
 
 const defaultRequestDelayMs = 500;
+const defaultLearnRequestDelayMinMs = 1_500;
+const defaultLearnRequestDelayMaxMs = 5_000;
 const maxPages = 10_000;
 
 async function run(): Promise<void> {
@@ -170,6 +172,9 @@ async function backfillLearnFeed(
   timeoutMs: number
 ): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
   const startUrl = resolveLearnBackfillStartUrl(feed);
+  const learnDelay = resolveLearnBackfillDelay();
+
+  await sleepRandom(learnDelay);
   const categories = await fetchLearnCategories(startUrl, timeoutMs);
   const latestCategory = {
     title: "New Guides",
@@ -188,6 +193,7 @@ async function backfillLearnFeed(
     while (pageUrl && pageCount < maxPages) {
       console.log(`Backfill crawling Learn category=${category.title} pageUrl=${pageUrl}`);
 
+      await sleepRandom(learnDelay);
       const page = await fetchLearnCategoryPage(pageUrl, timeoutMs);
       pageCount += 1;
       console.log(
@@ -205,6 +211,7 @@ async function backfillLearnFeed(
         seenGuideUrls.add(guide.url);
         console.log(`Backfill Learn guide detail fetching | url=${guide.url} | title=${guide.title}`);
 
+        await sleepRandom(learnDelay);
         const detail = await fetchLearnGuideDetail(guide.url, timeoutMs);
         const item = normalizeLearnGuide(guide, detail, feed.id, category, pageUrl);
         console.log(
@@ -224,10 +231,6 @@ async function backfillLearnFeed(
       }
 
       pageUrl = page.nextPageUrl;
-
-      if (pageUrl) {
-        await sleep(defaultRequestDelayMs);
-      }
     }
   }
 
@@ -492,6 +495,49 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function sleepRandom(range: { maxMs: number; minMs: number }): Promise<void> {
+  const delayMs =
+    range.minMs + Math.floor(Math.random() * (range.maxMs - range.minMs + 1));
+
+  console.log(`Backfill request delay: ${delayMs}ms`);
+  return sleep(delayMs);
+}
+
+function resolveLearnBackfillDelay(): { maxMs: number; minMs: number } {
+  const minMs = resolvePositiveIntegerEnv(
+    "LEARN_BACKFILL_DELAY_MIN_MS",
+    defaultLearnRequestDelayMinMs
+  );
+  const maxMs = resolvePositiveIntegerEnv(
+    "LEARN_BACKFILL_DELAY_MAX_MS",
+    defaultLearnRequestDelayMaxMs
+  );
+
+  if (maxMs < minMs) {
+    throw new Error(
+      `LEARN_BACKFILL_DELAY_MAX_MS must be greater than or equal to LEARN_BACKFILL_DELAY_MIN_MS. Got min=${minMs} max=${maxMs}.`
+    );
+  }
+
+  return { maxMs, minMs };
+}
+
+function resolvePositiveIntegerEnv(name: string, fallback: number): number {
+  const configured = process.env[name]?.trim();
+
+  if (!configured) {
+    return fallback;
+  }
+
+  const parsed = Number(configured);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer number of milliseconds, got: ${configured}`);
+  }
+
+  return parsed;
 }
 
 run().catch((error: unknown) => {

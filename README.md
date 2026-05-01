@@ -151,3 +151,9 @@ Adafruit Learn feeds are backfilled by crawling New Guides, discovering categori
 ```bash
 npm run backfill -- <learn-feed-id>
 ```
+
+Learn backfill uses a random delay before each Learn request. Defaults are 1500-5000ms:
+
+```bash
+LEARN_BACKFILL_DELAY_MIN_MS=5000 LEARN_BACKFILL_DELAY_MAX_MS=15000 npm run backfill -- <learn-feed-id>
+```
