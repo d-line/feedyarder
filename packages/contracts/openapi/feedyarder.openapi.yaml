@@ -823,6 +823,7 @@ components:
         - summaryText
         - contentHtml
         - publishedAt
+        - media
         - isRead
         - isStarred
         - createdAt
@@ -849,6 +850,8 @@ components:
         publishedAt:
           type: [string, "null"]
           format: date-time
+        media:
+          $ref: "#/components/schemas/ItemMediaResponse"
         isRead:
           type: boolean
         isStarred:
@@ -856,6 +859,34 @@ components:
         createdAt:
           type: string
           format: date-time
+    ItemMediaResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - playerUrl
+        - enclosureUrl
+        - mimeType
+        - durationSeconds
+        - imageUrl
+      properties:
+        kind:
+          type: [string, "null"]
+          description: Nullable media kind. Current values are youtube, podcast, and audio.
+        playerUrl:
+          type: [string, "null"]
+          format: uri
+        enclosureUrl:
+          type: [string, "null"]
+          format: uri
+        mimeType:
+          type: [string, "null"]
+        durationSeconds:
+          type: [integer, "null"]
+          minimum: 0
+        imageUrl:
+          type: [string, "null"]
+          format: uri
     ItemListResponse:
       type: object
       additionalProperties: false
