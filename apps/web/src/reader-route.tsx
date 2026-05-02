@@ -8,7 +8,7 @@ import {
   listItems,
   updateItemState
 } from "./api-client.js";
-import { sanitizeFeedHtml } from "./sanitize-feed-html.js";
+import { StoryExpandedCard } from "./story-expanded-card.js";
 
 export function ReaderRoute() {
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -470,36 +470,11 @@ export function ReaderRoute() {
               </button>
 
               {isExpanded ? (
-                <div className="story-expanded">
-                  <div className="story-meta">
-                    <span>pub:{formatItemTimestamp(item)}</span>
-                    <span>author:{item.author ?? "unknown"}</span>
-                    <span>read:{item.isRead ? "yes" : "no"}</span>
-                    <span>starred:{item.isStarred ? "yes" : "no"}</span>
-                  </div>
-                  {item.contentHtml ? (
-                    <div
-                      className="story-body"
-                      dangerouslySetInnerHTML={{ __html: sanitizeFeedHtml(item.contentHtml) }}
-                    />
-                  ) : (
-                    <p className="story-body">{item.summaryText ?? "No content."}</p>
-                  )}
-                  <div className="story-actions">
-                    <button onClick={() => void handleToggleRead(item)} type="button">
-                      {item.isRead ? "mark unread" : "mark read"}
-                    </button>
-                    <button onClick={() => void handleToggleStar(item)} type="button">
-                      {item.isStarred ? "unstar" : "star"}
-                    </button>
-                    {item.url ? (
-                      <a className="story-link" href={item.url} rel="noreferrer" target="_blank">
-                        open source
-                      </a>
-                    ) : null}
-                    <span className="story-action-date">pub:{formatItemFullTimestamp(item)}</span>
-                  </div>
-                </div>
+                <StoryExpandedCard
+                  item={item}
+                  onToggleRead={(targetItem) => void handleToggleRead(targetItem)}
+                  onToggleStar={(targetItem) => void handleToggleStar(targetItem)}
+                />
               ) : null}
             </article>
           );
@@ -547,14 +522,6 @@ function formatRelativeTimestamp(value: string): string {
   return moment(value).fromNow();
 }
 
-function formatTimestamp(value: string): string {
-  return new Date(value).toLocaleString();
-}
-
 function formatItemTimestamp(item: Item): string {
   return item.publishedAt ? formatRelativeTimestamp(item.publishedAt) : "(no pub date)";
-}
-
-function formatItemFullTimestamp(item: Item): string {
-  return item.publishedAt ? formatTimestamp(item.publishedAt) : "(no pub date)";
 }

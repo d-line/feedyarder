@@ -158,6 +158,124 @@ describe("item-management repository", () => {
     expect(updated?.isStarred).toBe(false);
   });
 
+  it("maps youtube extension metadata to a normalized media response", async () => {
+    const queryMock = vi.fn().mockResolvedValue({
+      rows: [
+        buildItemRow({
+          rawExtensionData: {
+            "media:group": {
+              "media:thumbnail": {
+                "@_url": "https://i.ytimg.com/vi/video_123/mqdefault.jpg"
+              },
+              "yt:duration": {
+                "@_seconds": 245
+              }
+            },
+            "yt:videoId": "video_123"
+          },
+          url: "https://www.youtube.com/watch?v=ignored"
+        })
+      ]
+    });
+    const pool = {
+      query: queryMock
+    } as unknown as Pool;
+
+    const result = await listItems(pool, {
+      cursor: null,
+      feedId: null,
+      folderId: null,
+      limit: 20,
+      query: null,
+      read: null,
+      starred: null
+    });
+
+    expect(result.items[0]?.media).toEqual({
+      durationSeconds: 245,
+      enclosureUrl: null,
+      imageUrl: "https://i.ytimg.com/vi/video_123/mqdefault.jpg",
+      kind: "youtube",
+      mimeType: null,
+      playerUrl: "https://www.youtube-nocookie.com/embed/video_123"
+    });
+  });
+
+  it("uses media description as summary fallback when stored summary is missing", async () => {
+    const queryMock = vi.fn().mockResolvedValue({
+      rows: [
+        buildItemRow({
+          contentHtml: null,
+          rawExtensionData: {
+            "media:group": {
+              "media:description": {
+                "#text": "Video description from YouTube metadata"
+              }
+            }
+          },
+          summaryText: null
+        })
+      ]
+    });
+    const pool = {
+      query: queryMock
+    } as unknown as Pool;
+
+    const result = await listItems(pool, {
+      cursor: null,
+      feedId: null,
+      folderId: null,
+      limit: 20,
+      query: null,
+      read: null,
+      starred: null
+    });
+
+    expect(result.items[0]?.contentHtml).toBeNull();
+    expect(result.items[0]?.summaryText).toBe("Video description from YouTube metadata");
+  });
+
+  it("maps podcast enclosure metadata to a normalized media response", async () => {
+    const queryMock = vi.fn().mockResolvedValue({
+      rows: [
+        buildItemRow({
+          rawExtensionData: {
+            enclosure: {
+              "@_type": "audio/mpeg",
+              "@_url": "https://example.com/episode.mp3"
+            },
+            "itunes:duration": "01:02:03",
+            "itunes:image": {
+              "@_href": "https://example.com/show.jpg"
+            }
+          }
+        })
+      ]
+    });
+    const pool = {
+      query: queryMock
+    } as unknown as Pool;
+
+    const result = await listItems(pool, {
+      cursor: null,
+      feedId: null,
+      folderId: null,
+      limit: 20,
+      query: null,
+      read: null,
+      starred: null
+    });
+
+    expect(result.items[0]?.media).toEqual({
+      durationSeconds: 3723,
+      enclosureUrl: "https://example.com/episode.mp3",
+      imageUrl: "https://example.com/show.jpg",
+      kind: "podcast",
+      mimeType: "audio/mpeg",
+      playerUrl: null
+    });
+  });
+
   it("returns null when update target item does not exist", async () => {
     const pool = {
       query: vi.fn().mockResolvedValue({ rows: [] })
@@ -177,7 +295,11 @@ function buildItemRow(input?: {
   isRead?: boolean;
   isStarred?: boolean;
   publishedAt?: string | null;
+  rawExtensionData?: unknown;
+  summaryText?: string | null;
+  contentHtml?: string | null;
   title?: string | null;
+  url?: string | null;
 }): {
   id: string;
   feed_id: string;
@@ -188,6 +310,7 @@ function buildItemRow(input?: {
   summary_text: string | null;
   content_html: string | null;
   published_at: Date | null;
+  raw_extension_data: unknown;
   is_read: boolean;
   is_starred: boolean;
   created_at: Date;
@@ -197,7 +320,7 @@ function buildItemRow(input?: {
 
   return {
     author: "alice",
-    content_html: "<p>body</p>",
+    content_html: input && "contentHtml" in input ? input.contentHtml : "<p>body</p>",
     created_at: new Date("2026-04-25T12:00:00.000Z"),
     feed_id: "00000000-0000-0000-0000-000000000001",
     feed_title: "Feed title",
@@ -205,8 +328,9 @@ function buildItemRow(input?: {
     is_read: input?.isRead ?? false,
     is_starred: input?.isStarred ?? true,
     published_at: publishedAtInput ? new Date(publishedAtInput) : null,
-    summary_text: "summary",
+    raw_extension_data: input?.rawExtensionData ?? {},
+    summary_text: input && "summaryText" in input ? input.summaryText : "summary",
     title: input?.title ?? "Title",
-    url: "https://example.com/post"
+    url: input?.url ?? "https://example.com/post"
   };
 }

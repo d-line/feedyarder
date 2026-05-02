@@ -20,6 +20,7 @@ interface ItemRow {
   summary_text: string | null;
   content_html: string | null;
   published_at: Date | null;
+  raw_extension_data: unknown;
   is_read: boolean;
   is_starred: boolean;
   created_at: Date;
@@ -40,9 +41,19 @@ export interface ItemResponse {
   summaryText: string | null;
   contentHtml: string | null;
   publishedAt: string | null;
+  media: ItemMediaResponse;
   isRead: boolean;
   isStarred: boolean;
   createdAt: string;
+}
+
+export interface ItemMediaResponse {
+  kind: "audio" | "podcast" | "youtube" | null;
+  playerUrl: string | null;
+  enclosureUrl: string | null;
+  mimeType: string | null;
+  durationSeconds: number | null;
+  imageUrl: string | null;
 }
 
 export interface ItemListResponse {
@@ -51,6 +62,8 @@ export interface ItemListResponse {
 }
 
 function mapItem(row: ItemRow): ItemResponse {
+  const mediaDescription = readMediaDescription(row.raw_extension_data);
+
   return {
     author: row.author,
     contentHtml: row.content_html,
@@ -60,8 +73,9 @@ function mapItem(row: ItemRow): ItemResponse {
     id: row.id,
     isRead: row.is_read,
     isStarred: row.is_starred,
+    media: mapItemMedia(row),
     publishedAt: row.published_at?.toISOString() ?? null,
-    summaryText: row.summary_text,
+    summaryText: row.summary_text ?? mediaDescription,
     title: row.title,
     url: row.url
   };
@@ -130,6 +144,7 @@ export async function listItems(
         items.summary_text,
         items.content_html,
         items.published_at,
+        items.raw_extension_data,
         items.is_read,
         items.is_starred,
         items.created_at
@@ -189,6 +204,7 @@ export async function updateItemState(
         items.summary_text,
         items.content_html,
         items.published_at,
+        items.raw_extension_data,
         items.is_read,
         items.is_starred,
         items.created_at
@@ -198,6 +214,186 @@ export async function updateItemState(
 
   const row = result.rows[0];
   return row ? mapItem(row) : null;
+}
+
+function mapItemMedia(row: ItemRow): ItemMediaResponse {
+  const extensions = readObject(row.raw_extension_data) ?? {};
+  const youtubeVideoId = readText(extensions["yt:videoId"]) ?? extractYoutubeVideoId(row.url);
+  const enclosure = readObject(extensions.enclosure);
+  const enclosureUrl = normalizeUrl(readText(enclosure?.["@_url"]) ?? readText(enclosure?.url));
+  const enclosureType = normalizeText(readText(enclosure?.["@_type"]) ?? readText(enclosure?.type));
+  const mediaGroup = readObject(extensions["media:group"]);
+  const imageUrl =
+    readMediaThumbnailUrl(mediaGroup?.["media:thumbnail"]) ??
+    readMediaThumbnailUrl(extensions["media:thumbnail"]) ??
+    normalizeUrl(readText(readObject(extensions["itunes:image"])?.["@_href"]));
+  const durationSeconds =
+    parseDurationSeconds(readText(extensions["itunes:duration"])) ??
+    parseDurationSeconds(readText(readObject(mediaGroup?.["yt:duration"])?.["@_seconds"])) ??
+    parseDurationSeconds(readText(mediaGroup?.["yt:duration"]));
+
+  if (youtubeVideoId) {
+    return {
+      durationSeconds,
+      enclosureUrl: null,
+      imageUrl,
+      kind: "youtube",
+      mimeType: null,
+      playerUrl: `https://www.youtube-nocookie.com/embed/${youtubeVideoId}`
+    };
+  }
+
+  if (enclosureUrl && enclosureType?.startsWith("audio/")) {
+    return {
+      durationSeconds,
+      enclosureUrl,
+      imageUrl,
+      kind: extensions["itunes:duration"] || extensions["itunes:image"] ? "podcast" : "audio",
+      mimeType: enclosureType,
+      playerUrl: null
+    };
+  }
+
+  return emptyItemMedia();
+}
+
+function readMediaDescription(rawExtensionData: unknown): string | null {
+  const extensions = readObject(rawExtensionData);
+  const mediaGroup = readObject(extensions?.["media:group"]);
+
+  return normalizeText(
+    readText(mediaGroup?.["media:description"]) ?? readText(extensions?.["media:description"])
+  );
+}
+
+function emptyItemMedia(): ItemMediaResponse {
+  return {
+    durationSeconds: null,
+    enclosureUrl: null,
+    imageUrl: null,
+    kind: null,
+    mimeType: null,
+    playerUrl: null
+  };
+}
+
+function readObject(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  return null;
+}
+
+function readArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  return value === undefined || value === null ? [] : [value];
+}
+
+function readText(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (value && typeof value === "object" && "#text" in value) {
+    return readText((value as Record<string, unknown>)["#text"]);
+  }
+
+  if (value && typeof value === "object" && "__cdata" in value) {
+    return readText((value as Record<string, unknown>).__cdata);
+  }
+
+  return null;
+}
+
+function normalizeText(value: string | null): string | null {
+  return value?.trim() || null;
+}
+
+function normalizeUrl(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return new URL(value).toString();
+  } catch {
+    return null;
+  }
+}
+
+function readMediaThumbnailUrl(value: unknown): string | null {
+  for (const thumbnail of readArray(value)) {
+    const thumbnailObject = readObject(thumbnail);
+    const url = normalizeUrl(
+      readText(thumbnailObject?.["@_url"]) ??
+        readText(thumbnailObject?.url) ??
+        readText(thumbnail)
+    );
+
+    if (url) {
+      return url;
+    }
+  }
+
+  return null;
+}
+
+function extractYoutubeVideoId(value: string | null): string | null {
+  const url = normalizeUrl(value);
+
+  if (!url) {
+    return null;
+  }
+
+  const parsed = new URL(url);
+  const host = parsed.hostname.replace(/^www\./, "");
+
+  if (host === "youtu.be") {
+    return sanitizeYoutubeVideoId(parsed.pathname.slice(1));
+  }
+
+  if (host === "youtube.com" || host.endsWith(".youtube.com")) {
+    return (
+      sanitizeYoutubeVideoId(parsed.searchParams.get("v")) ??
+      sanitizeYoutubeVideoId(parsed.pathname.match(/\/(?:embed|shorts)\/([^/?#]+)/)?.[1] ?? null)
+    );
+  }
+
+  return null;
+}
+
+function sanitizeYoutubeVideoId(value: string | null): string | null {
+  if (!value || !/^[A-Za-z0-9_-]{6,}$/.test(value)) {
+    return null;
+  }
+
+  return value;
+}
+
+function parseDurationSeconds(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+
+  if (/^\d+$/.test(value)) {
+    return Number(value);
+  }
+
+  const parts = value.split(":").map((part) => Number(part));
+
+  if (parts.length === 0 || parts.length > 3 || parts.some((part) => !Number.isFinite(part))) {
+    return null;
+  }
+
+  return parts.reduce((total, part) => total * 60 + part, 0);
 }
 
 function appendCursorCondition(

@@ -4,10 +4,6 @@
 
 import { z } from "zod";
 
-type ItemListResponse = {
-  items: Array<ItemResponse>;
-  nextCursor: string | null;
-};
 type ItemResponse = {
   id: string;
   feedId: string;
@@ -18,9 +14,22 @@ type ItemResponse = {
   summaryText: string | null;
   contentHtml: string | null;
   publishedAt: string | null;
+  media: ItemMediaResponse;
   isRead: boolean;
   isStarred: boolean;
   createdAt: string;
+};
+type ItemMediaResponse = {
+  kind: string | null;
+  playerUrl: string | null;
+  enclosureUrl: string | null;
+  mimeType: string | null;
+  durationSeconds: number | null;
+  imageUrl: string | null;
+};
+type ItemListResponse = {
+  items: Array<ItemResponse>;
+  nextCursor: string | null;
 };
 
 const HealthResponse = z
@@ -132,6 +141,16 @@ const ImportOpmlResponse = z
     skippedFeedCount: z.number().int(),
   })
   .strict();
+const ItemMediaResponse: z.ZodType<ItemMediaResponse> = z
+  .object({
+    kind: z.union([z.string(), z.null()]),
+    playerUrl: z.union([z.string(), z.null()]),
+    enclosureUrl: z.union([z.string(), z.null()]),
+    mimeType: z.union([z.string(), z.null()]),
+    durationSeconds: z.union([z.number(), z.null()]),
+    imageUrl: z.union([z.string(), z.null()]),
+  })
+  .strict();
 const ItemResponse: z.ZodType<ItemResponse> = z
   .object({
     id: z.string().uuid(),
@@ -143,6 +162,7 @@ const ItemResponse: z.ZodType<ItemResponse> = z
     summaryText: z.union([z.string(), z.null()]),
     contentHtml: z.union([z.string(), z.null()]),
     publishedAt: z.union([z.string(), z.null()]),
+    media: ItemMediaResponse,
     isRead: z.boolean(),
     isStarred: z.boolean(),
     createdAt: z.string().datetime({ offset: true }),
@@ -175,6 +195,7 @@ export const schemas = {
   FetchEventResponse,
   ImportOpmlRequest,
   ImportOpmlResponse,
+  ItemMediaResponse,
   ItemResponse,
   ItemListResponse,
   UpdateItemStateRequest,
