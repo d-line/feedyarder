@@ -18,6 +18,8 @@ where is_paused = false
     or site_url ilike '%blog.adafruit.com/%'
     or feed_url ilike '%learn.adafruit.com/%'
     or site_url ilike '%learn.adafruit.com/%'
+    or feed_url ilike '%dou.ua/%'
+    or site_url ilike '%dou.ua/%'
   )
 order by created_at asc, id asc
 "}"
