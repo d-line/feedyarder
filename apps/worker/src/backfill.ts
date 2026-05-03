@@ -6,6 +6,10 @@ import {
   resolveAdafruitRootUrl
 } from "./backfill/adafruit.js";
 import {
+  fetchDouBackfillPage,
+  resolveDouLentaRootUrl
+} from "./backfill/dou.js";
+import {
   fetchLearnCategories,
   fetchLearnCategoryPage,
   fetchLearnGuideDetail,
@@ -53,7 +57,9 @@ async function run(): Promise<void> {
         ? await backfillAdafruitFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
         : isLearnFeed(feed)
           ? await backfillLearnFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-          : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
+          : isDouFeed(feed)
+            ? await backfillDouFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
+            : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
 
     console.log(
       `Backfill complete for ${feed.title ?? feed.feedUrl}: source=${result.source} pages=${result.pageCount} discovered=${result.discoveredCount} inserted=${result.insertedCount}`
@@ -242,6 +248,55 @@ async function backfillLearnFeed(
   };
 }
 
+async function backfillDouFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const startUrl = resolveDouBackfillStartUrl(feed);
+  const seen = new Set<string>();
+  let pageUrl: string | null = startUrl;
+  let discoveredCount = 0;
+  let insertedCount = 0;
+
+  while (pageUrl && seen.size < maxPages) {
+    if (seen.has(pageUrl)) {
+      break;
+    }
+
+    seen.add(pageUrl);
+    console.log(`Backfill crawling DOU pageUrl=${pageUrl}`);
+
+    const page = await fetchDouBackfillPage(pageUrl, feed.id, timeoutMs);
+    console.log(
+      `Backfill DOU page parsed: page=${page.pageNumber} items=${page.items.length} next=${page.nextPageUrl ?? "none"}`
+    );
+
+    discoveredCount += page.items.length;
+
+    for (const result of await insertItemsWithResults(pool, feed.id, page.items)) {
+      console.log(formatInsertDebugLine(result.item, result.inserted));
+
+      if (result.inserted) {
+        insertedCount += 1;
+      }
+    }
+
+    pageUrl = page.nextPageUrl;
+
+    if (pageUrl) {
+      await sleep(defaultRequestDelayMs);
+    }
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount: seen.size,
+    source: "dou"
+  };
+}
+
 async function crawlRutrackerForum(
   pool: Pool,
   feedId: string,
@@ -349,6 +404,17 @@ function readSourceId(item: NormalizedItem): string | null {
     return adafruitLearnData.guideId;
   }
 
+  const douData = item.rawExtensionData.dou;
+
+  if (
+    douData &&
+    typeof douData === "object" &&
+    "path" in douData &&
+    typeof douData.path === "string"
+  ) {
+    return douData.path;
+  }
+
   return item.guid?.replace(/^rutracker-topic:/, "") ?? null;
 }
 
@@ -430,6 +496,22 @@ function resolveLearnBackfillStartUrl(feed: FeedBackfillTarget): string {
   throw new Error(`Feed ${feed.id} does not point to Adafruit Learn.`);
 }
 
+function resolveDouBackfillStartUrl(feed: FeedBackfillTarget): string {
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return resolveDouLentaRootUrl(candidate).toString();
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to DOU.`);
+}
+
 function isYouTubeFeed(feed: FeedBackfillTarget): boolean {
   return [feed.siteUrl, feed.feedUrl].some((candidate) => {
     if (!candidate) {
@@ -469,6 +551,21 @@ function isLearnFeed(feed: FeedBackfillTarget): boolean {
     try {
       const url = new URL(candidate);
       return url.hostname === "learn.adafruit.com";
+    } catch {
+      return false;
+    }
+  });
+}
+
+function isDouFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+
+    try {
+      const url = new URL(candidate);
+      return url.hostname === "dou.ua" || url.hostname === "www.dou.ua";
     } catch {
       return false;
     }

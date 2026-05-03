@@ -157,3 +157,9 @@ Learn backfill uses a random delay before each Learn request. Defaults are 1500-
 ```bash
 LEARN_BACKFILL_DELAY_MIN_MS=5000 LEARN_BACKFILL_DELAY_MAX_MS=15000 npm run backfill -- <learn-feed-id>
 ```
+
+DOU feeds are backfilled by crawling `https://dou.ua/lenta/` and following DOU archive pagination:
+
+```bash
+npm run backfill -- <dou-feed-id>
+```
