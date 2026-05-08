@@ -10,6 +10,11 @@ import {
   resolveDouLentaRootUrl
 } from "./backfill/dou.js";
 import {
+  buildGitHubBlogApiPageUrl,
+  fetchGitHubBlogBackfillPage,
+  resolveGitHubBlogRootUrl
+} from "./backfill/githubBlog.js";
+import {
   fetchLearnCategories,
   fetchLearnCategoryPage,
   fetchLearnGuideDetail,
@@ -59,7 +64,9 @@ async function run(): Promise<void> {
           ? await backfillLearnFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
           : isDouFeed(feed)
             ? await backfillDouFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-            : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
+            : isGitHubBlogFeed(feed)
+              ? await backfillGitHubBlogFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
+              : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
 
     console.log(
       `Backfill complete for ${feed.title ?? feed.feedUrl}: source=${result.source} pages=${result.pageCount} discovered=${result.discoveredCount} inserted=${result.insertedCount}`
@@ -297,6 +304,51 @@ async function backfillDouFeed(
   };
 }
 
+async function backfillGitHubBlogFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const startUrl = resolveGitHubBlogBackfillStartUrl(feed);
+  let discoveredCount = 0;
+  let insertedCount = 0;
+  let pageCount = 0;
+  let pageUrl: string | null = buildGitHubBlogApiPageUrl(startUrl, 1);
+
+  while (pageUrl && pageCount < maxPages) {
+    console.log(`Backfill crawling GitHub Blog pageUrl=${pageUrl}`);
+
+    const page = await fetchGitHubBlogBackfillPage(pageUrl, feed.id, timeoutMs);
+    pageCount += 1;
+    console.log(
+      `Backfill GitHub Blog page parsed: page=${page.pageNumber} items=${page.items.length} totalPages=${page.totalPages ?? "unknown"} next=${page.nextPageUrl ?? "none"}`
+    );
+
+    discoveredCount += page.items.length;
+
+    for (const result of await insertItemsWithResults(pool, feed.id, page.items)) {
+      console.log(formatInsertDebugLine(result.item, result.inserted));
+
+      if (result.inserted) {
+        insertedCount += 1;
+      }
+    }
+
+    pageUrl = page.nextPageUrl;
+
+    if (pageUrl) {
+      await sleep(defaultRequestDelayMs);
+    }
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount,
+    source: "github-blog"
+  };
+}
+
 async function crawlRutrackerForum(
   pool: Pool,
   feedId: string,
@@ -415,6 +467,17 @@ function readSourceId(item: NormalizedItem): string | null {
     return douData.path;
   }
 
+  const githubBlogData = item.rawExtensionData.githubBlog;
+
+  if (
+    githubBlogData &&
+    typeof githubBlogData === "object" &&
+    "postId" in githubBlogData &&
+    typeof githubBlogData.postId === "string"
+  ) {
+    return githubBlogData.postId;
+  }
+
   return item.guid?.replace(/^rutracker-topic:/, "") ?? null;
 }
 
@@ -512,6 +575,22 @@ function resolveDouBackfillStartUrl(feed: FeedBackfillTarget): string {
   throw new Error(`Feed ${feed.id} does not point to DOU.`);
 }
 
+function resolveGitHubBlogBackfillStartUrl(feed: FeedBackfillTarget): string {
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return resolveGitHubBlogRootUrl(candidate).toString();
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to GitHub Blog.`);
+}
+
 function isYouTubeFeed(feed: FeedBackfillTarget): boolean {
   return [feed.siteUrl, feed.feedUrl].some((candidate) => {
     if (!candidate) {
@@ -566,6 +645,21 @@ function isDouFeed(feed: FeedBackfillTarget): boolean {
     try {
       const url = new URL(candidate);
       return url.hostname === "dou.ua" || url.hostname === "www.dou.ua";
+    } catch {
+      return false;
+    }
+  });
+}
+
+function isGitHubBlogFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+
+    try {
+      const url = new URL(candidate);
+      return url.hostname === "github.blog" || url.hostname === "www.github.blog";
     } catch {
       return false;
     }

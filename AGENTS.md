@@ -123,6 +123,7 @@ If the project direction changes, this file must be updated to reflect the new a
 - Provide a worker backfill target for Adafruit Blog feeds that takes a feed id, crawls `https://blog.adafruit.com/` and `/page/<n>/` archive pages, and stores post id, categories, tags, and thumbnail metadata from post-list rows.
 - Provide a worker backfill target for Adafruit Learn feeds that takes a feed id, crawls `https://learn.adafruit.com/guides/latest`, discovers categories from `https://learn.adafruit.com/categories`, crawls each category's `guide_page` pagination, fetches each unique guide page once for publication metadata, and stores guide id, categories, skill level, guide type, favorite count, and image metadata.
 - Provide a worker backfill target for DOU feeds that takes a feed id, crawls `https://dou.ua/lenta/` and `/lenta/page/<n>/` pagination, uses article URLs as GUIDs to align with RSS ingestion, and parses Ukrainian archive dates where current-year rows omit the year while older rows include it.
+- Provide a worker backfill target for GitHub Blog feeds that takes a feed id, crawls `https://github.blog/wp-json/wp/v2/posts` pagination, uses WordPress post IDs to build RSS-compatible GUIDs like `https://github.blog/?p=<postId>`, and stores category, tag, author, thumbnail, and API pagination metadata.
 - Start with an hourly fetch interval per feed.
 - Use adaptive scheduling:
   - increase interval when feeds are inactive
