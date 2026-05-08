@@ -163,3 +163,9 @@ DOU feeds are backfilled by crawling `https://dou.ua/lenta/` and following DOU a
 ```bash
 npm run backfill -- <dou-feed-id>
 ```
+
+GitHub Blog feeds are backfilled through GitHub Blog's WordPress API pagination:
+
+```bash
+npm run backfill -- <github-blog-feed-id>
+```
