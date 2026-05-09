@@ -23,6 +23,13 @@ import {
 } from "./backfill/learn.js";
 import { fetchRutrackerBackfillPage } from "./backfill/rutracker.js";
 import {
+  buildSubstackArchiveApiUrl,
+  fetchSubstackArchivePage,
+  fetchSubstackPostDetail,
+  normalizeSubstackPost,
+  resolveSubstackRootUrl
+} from "./backfill/substack.js";
+import {
   collectYouTubeBackfillItemBatches,
   resolveYouTubeBackfillUrls
 } from "./backfill/youtube.js";
@@ -66,7 +73,9 @@ async function run(): Promise<void> {
             ? await backfillDouFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
             : isGitHubBlogFeed(feed)
               ? await backfillGitHubBlogFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-              : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
+              : isSubstackFeed(feed)
+                ? await backfillSubstackFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
+                : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
 
     console.log(
       `Backfill complete for ${feed.title ?? feed.feedUrl}: source=${result.source} pages=${result.pageCount} discovered=${result.discoveredCount} inserted=${result.insertedCount}`
@@ -349,6 +358,79 @@ async function backfillGitHubBlogFeed(
   };
 }
 
+async function backfillSubstackFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const startUrl = resolveSubstackBackfillStartUrl(feed);
+  let discoveredCount = 0;
+  let insertedCount = 0;
+  let pageCount = 0;
+  let pageUrl: string | null = buildSubstackArchiveApiUrl(startUrl);
+
+  while (pageUrl && pageCount < maxPages) {
+    console.log(`Backfill crawling Substack archive pageUrl=${pageUrl}`);
+
+    const page = await fetchSubstackArchivePage(pageUrl, timeoutMs);
+    pageCount += 1;
+    console.log(
+      `Backfill Substack archive parsed: page=${page.pageNumber} offset=${page.offset} posts=${page.posts.length} next=${page.nextPageUrl ?? "none"}`
+    );
+
+    const items: NormalizedItem[] = [];
+
+    for (const post of page.posts) {
+      const slug = typeof post.slug === "string" ? post.slug : null;
+      const postId = typeof post.id === "number" ? String(post.id) : "unknown";
+
+      if (!slug) {
+        console.log(`Backfill Substack post skipped_missing_slug | sourceId=${postId}`);
+        continue;
+      }
+
+      console.log(`Backfill Substack post detail fetching | sourceId=${postId} | slug=${slug}`);
+      await sleep(defaultRequestDelayMs);
+
+      const detail = await fetchSubstackPostDetail(startUrl, slug, timeoutMs);
+      const item = normalizeSubstackPost(detail ?? post, feed.id, pageUrl, detail !== null);
+
+      if (!item) {
+        console.log(`Backfill Substack post skipped_normalize_failed | sourceId=${postId} | slug=${slug}`);
+        continue;
+      }
+
+      console.log(
+        `Backfill Substack post normalized | sourceId=${readSourceId(item) ?? "unknown"} | publishedAt=${item.publishedAt ?? "null"} | title=${item.title ?? "null"} | url=${item.url ?? "null"}`
+      );
+      items.push(item);
+    }
+
+    discoveredCount += items.length;
+
+    for (const result of await insertItemsWithResults(pool, feed.id, items)) {
+      console.log(formatInsertDebugLine(result.item, result.inserted));
+
+      if (result.inserted) {
+        insertedCount += 1;
+      }
+    }
+
+    pageUrl = page.nextPageUrl;
+
+    if (pageUrl) {
+      await sleep(defaultRequestDelayMs);
+    }
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount,
+    source: "substack"
+  };
+}
+
 async function crawlRutrackerForum(
   pool: Pool,
   feedId: string,
@@ -478,6 +560,17 @@ function readSourceId(item: NormalizedItem): string | null {
     return githubBlogData.postId;
   }
 
+  const substackData = item.rawExtensionData.substack;
+
+  if (
+    substackData &&
+    typeof substackData === "object" &&
+    "postId" in substackData &&
+    typeof substackData.postId === "string"
+  ) {
+    return substackData.postId;
+  }
+
   return item.guid?.replace(/^rutracker-topic:/, "") ?? null;
 }
 
@@ -591,6 +684,22 @@ function resolveGitHubBlogBackfillStartUrl(feed: FeedBackfillTarget): string {
   throw new Error(`Feed ${feed.id} does not point to GitHub Blog.`);
 }
 
+function resolveSubstackBackfillStartUrl(feed: FeedBackfillTarget): string {
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return resolveSubstackRootUrl(candidate).toString();
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to a Substack publication.`);
+}
+
 function isYouTubeFeed(feed: FeedBackfillTarget): boolean {
   return [feed.siteUrl, feed.feedUrl].some((candidate) => {
     if (!candidate) {
@@ -660,6 +769,21 @@ function isGitHubBlogFeed(feed: FeedBackfillTarget): boolean {
     try {
       const url = new URL(candidate);
       return url.hostname === "github.blog" || url.hostname === "www.github.blog";
+    } catch {
+      return false;
+    }
+  });
+}
+
+function isSubstackFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+
+    try {
+      const url = new URL(candidate);
+      return url.hostname.endsWith(".substack.com");
     } catch {
       return false;
     }
