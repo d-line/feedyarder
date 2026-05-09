@@ -42,7 +42,7 @@ describe("parseSubstackArchivePage", () => {
     });
   });
 
-  it("stops when a page returns fewer rows than the requested limit", () => {
+  it("continues when Substack returns a partial non-empty page", () => {
     const result = parseSubstackArchivePage(
       JSON.stringify([
         {
@@ -53,8 +53,18 @@ describe("parseSubstackArchivePage", () => {
       "https://anncoulter.substack.com/api/v1/archive?sort=new&search=&offset=20&limit=50"
     );
 
+    expect(result.nextPageUrl).toBe(
+      "https://anncoulter.substack.com/api/v1/archive?sort=new&search=&offset=21&limit=50"
+    );
+  });
+
+  it("stops when a page returns no rows", () => {
+    const result = parseSubstackArchivePage(
+      JSON.stringify([]),
+      "https://anncoulter.substack.com/api/v1/archive?sort=new&search=&offset=10000&limit=50"
+    );
+
     expect(result.nextPageUrl).toBeNull();
-    expect(result.pageNumber).toBe(1);
   });
 });
 
