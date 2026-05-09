@@ -34,7 +34,7 @@ export interface SubstackPost {
 }
 
 const archivePageSize = 50;
-const knownSubstackCustomHosts = new Set(["blog.bytebytego.com"]);
+const knownSubstackCustomHosts = new Set(["blog.bytebytego.com", "www.the-ai-corner.com"]);
 
 const requestHeaders: HeadersInit = {
   "user-agent": "Feedyarder/0.1 (+https://localhost)"

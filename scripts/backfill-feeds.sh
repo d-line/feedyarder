@@ -26,6 +26,8 @@ where is_paused = false
     or site_url ilike '%.substack.com/%'
     or feed_url ilike '%blog.bytebytego.com/%'
     or site_url ilike '%blog.bytebytego.com/%'
+    or feed_url ilike '%www.the-ai-corner.com/%'
+    or site_url ilike '%www.the-ai-corner.com/%'
   )
 order by created_at asc, id asc
 "}"

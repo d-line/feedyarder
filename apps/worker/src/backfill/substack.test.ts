@@ -184,6 +184,9 @@ describe("buildSubstackArchiveApiUrl", () => {
     expect(buildSubstackArchiveApiUrl("https://blog.bytebytego.com/feed", 50)).toBe(
       "https://blog.bytebytego.com/api/v1/archive?sort=new&search=&offset=50&limit=50"
     );
+    expect(buildSubstackArchiveApiUrl("https://www.the-ai-corner.com/feed", 50)).toBe(
+      "https://www.the-ai-corner.com/api/v1/archive?sort=new&search=&offset=50&limit=50"
+    );
   });
 });
 
@@ -198,6 +201,9 @@ describe("resolveSubstackRootUrl", () => {
     expect(resolveSubstackRootUrl("https://blog.bytebytego.com/feed").toString()).toBe(
       "https://blog.bytebytego.com/"
     );
+    expect(resolveSubstackRootUrl("https://www.the-ai-corner.com/feed").toString()).toBe(
+      "https://www.the-ai-corner.com/"
+    );
   });
 });
 
@@ -205,6 +211,7 @@ describe("isSupportedSubstackHost", () => {
   it("matches native Substack hosts and known custom domains", () => {
     expect(isSupportedSubstackHost("anncoulter.substack.com")).toBe(true);
     expect(isSupportedSubstackHost("blog.bytebytego.com")).toBe(true);
+    expect(isSupportedSubstackHost("www.the-ai-corner.com")).toBe(true);
     expect(isSupportedSubstackHost("example.com")).toBe(false);
   });
 });
