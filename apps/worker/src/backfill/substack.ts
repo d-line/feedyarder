@@ -88,7 +88,7 @@ export function parseSubstackArchivePage(json: string, pageUrl: string): Substac
   const limit = parseLimit(pageUrl);
 
   return {
-    nextPageUrl: payload.length >= limit ? buildSubstackArchiveApiUrl(pageUrl, offset + payload.length, limit) : null,
+    nextPageUrl: payload.length > 0 ? buildSubstackArchiveApiUrl(pageUrl, offset + payload.length, limit) : null,
     offset,
     pageNumber: Math.floor(offset / limit) + 1,
     posts: payload as SubstackPost[]
