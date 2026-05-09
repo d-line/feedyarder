@@ -176,6 +176,8 @@ Substack publication feeds are backfilled through their archive API offset pagin
 npm run backfill -- <substack-feed-id>
 ```
 
+Known Substack custom domains such as `https://blog.bytebytego.com/feed` are supported by the same target.
+
 Substack backfill uses a random delay before each archive and post-detail request. Defaults are 5000-15000ms:
 
 ```bash

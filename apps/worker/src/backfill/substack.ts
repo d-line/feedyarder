@@ -34,6 +34,7 @@ export interface SubstackPost {
 }
 
 const archivePageSize = 50;
+const knownSubstackCustomHosts = new Set(["blog.bytebytego.com"]);
 
 const requestHeaders: HeadersInit = {
   "user-agent": "Feedyarder/0.1 (+https://localhost)"
@@ -171,11 +172,15 @@ export function buildSubstackArchiveApiUrl(
 export function resolveSubstackRootUrl(candidate: string): URL {
   const url = new URL(candidate);
 
-  if (!url.hostname.endsWith(".substack.com")) {
+  if (!isSupportedSubstackHost(url.hostname)) {
     throw new Error(`Expected a Substack publication URL, got: ${candidate}`);
   }
 
   return new URL("/", url);
+}
+
+export function isSupportedSubstackHost(hostname: string): boolean {
+  return hostname.endsWith(".substack.com") || knownSubstackCustomHosts.has(hostname);
 }
 
 function pickSummaryText(post: SubstackPost): string | null {

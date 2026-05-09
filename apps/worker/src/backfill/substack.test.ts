@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { parseFeedDocument } from "../fetch/normalize.js";
 import {
   buildSubstackArchiveApiUrl,
+  isSupportedSubstackHost,
   normalizeSubstackPost,
   parseSubstackArchivePage,
   resolveSubstackRootUrl
@@ -178,6 +179,12 @@ describe("buildSubstackArchiveApiUrl", () => {
       "https://anncoulter.substack.com/api/v1/archive?sort=new&search=&offset=50&limit=50"
     );
   });
+
+  it("builds archive API URLs from known Substack custom-domain feed URLs", () => {
+    expect(buildSubstackArchiveApiUrl("https://blog.bytebytego.com/feed", 50)).toBe(
+      "https://blog.bytebytego.com/api/v1/archive?sort=new&search=&offset=50&limit=50"
+    );
+  });
 });
 
 describe("resolveSubstackRootUrl", () => {
@@ -185,5 +192,19 @@ describe("resolveSubstackRootUrl", () => {
     expect(resolveSubstackRootUrl("https://anncoulter.substack.com/archive").toString()).toBe(
       "https://anncoulter.substack.com/"
     );
+  });
+
+  it("resolves known Substack custom-domain feed URLs to the publication root", () => {
+    expect(resolveSubstackRootUrl("https://blog.bytebytego.com/feed").toString()).toBe(
+      "https://blog.bytebytego.com/"
+    );
+  });
+});
+
+describe("isSupportedSubstackHost", () => {
+  it("matches native Substack hosts and known custom domains", () => {
+    expect(isSupportedSubstackHost("anncoulter.substack.com")).toBe(true);
+    expect(isSupportedSubstackHost("blog.bytebytego.com")).toBe(true);
+    expect(isSupportedSubstackHost("example.com")).toBe(false);
   });
 });

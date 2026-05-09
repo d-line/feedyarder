@@ -26,6 +26,7 @@ import {
   buildSubstackArchiveApiUrl,
   fetchSubstackArchivePage,
   fetchSubstackPostDetail,
+  isSupportedSubstackHost,
   normalizeSubstackPost,
   resolveSubstackRootUrl
 } from "./backfill/substack.js";
@@ -783,7 +784,7 @@ function isSubstackFeed(feed: FeedBackfillTarget): boolean {
 
     try {
       const url = new URL(candidate);
-      return url.hostname.endsWith(".substack.com");
+      return isSupportedSubstackHost(url.hostname);
     } catch {
       return false;
     }
