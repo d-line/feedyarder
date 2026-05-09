@@ -400,6 +400,12 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.story-body-html img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
 .story-media {
   max-width: 52rem;
   margin: 1rem 0;
