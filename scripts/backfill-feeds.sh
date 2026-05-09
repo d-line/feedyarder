@@ -22,6 +22,8 @@ where is_paused = false
     or site_url ilike '%dou.ua/%'
     or feed_url ilike '%github.blog/%'
     or site_url ilike '%github.blog/%'
+    or feed_url ilike '%.substack.com/%'
+    or site_url ilike '%.substack.com/%'
   )
 order by created_at asc, id asc
 "}"

@@ -169,3 +169,9 @@ GitHub Blog feeds are backfilled through GitHub Blog's WordPress API pagination:
 ```bash
 npm run backfill -- <github-blog-feed-id>
 ```
+
+Substack publication feeds are backfilled through their archive API offset pagination:
+
+```bash
+npm run backfill -- <substack-feed-id>
+```
