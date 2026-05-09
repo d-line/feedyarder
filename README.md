@@ -175,3 +175,9 @@ Substack publication feeds are backfilled through their archive API offset pagin
 ```bash
 npm run backfill -- <substack-feed-id>
 ```
+
+Substack backfill uses a random delay before each archive and post-detail request. Defaults are 5000-15000ms:
+
+```bash
+SUBSTACK_BACKFILL_DELAY_MIN_MS=15000 SUBSTACK_BACKFILL_DELAY_MAX_MS=45000 npm run backfill -- <substack-feed-id>
+```

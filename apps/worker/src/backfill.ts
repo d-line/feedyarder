@@ -44,6 +44,8 @@ import type { Pool } from "pg";
 const defaultRequestDelayMs = 500;
 const defaultLearnRequestDelayMinMs = 1_500;
 const defaultLearnRequestDelayMaxMs = 5_000;
+const defaultSubstackRequestDelayMinMs = 5_000;
+const defaultSubstackRequestDelayMaxMs = 15_000;
 const maxPages = 10_000;
 
 async function run(): Promise<void> {
@@ -364,6 +366,7 @@ async function backfillSubstackFeed(
   timeoutMs: number
 ): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
   const startUrl = resolveSubstackBackfillStartUrl(feed);
+  const substackDelay = resolveSubstackBackfillDelay();
   let discoveredCount = 0;
   let insertedCount = 0;
   let pageCount = 0;
@@ -372,6 +375,7 @@ async function backfillSubstackFeed(
   while (pageUrl && pageCount < maxPages) {
     console.log(`Backfill crawling Substack archive pageUrl=${pageUrl}`);
 
+    await sleepRandom(substackDelay);
     const page = await fetchSubstackArchivePage(pageUrl, timeoutMs);
     pageCount += 1;
     console.log(
@@ -390,7 +394,7 @@ async function backfillSubstackFeed(
       }
 
       console.log(`Backfill Substack post detail fetching | sourceId=${postId} | slug=${slug}`);
-      await sleep(defaultRequestDelayMs);
+      await sleepRandom(substackDelay);
 
       const detail = await fetchSubstackPostDetail(startUrl, slug, timeoutMs);
       const item = normalizeSubstackPost(detail ?? post, feed.id, pageUrl, detail !== null);
@@ -417,10 +421,6 @@ async function backfillSubstackFeed(
     }
 
     pageUrl = page.nextPageUrl;
-
-    if (pageUrl) {
-      await sleep(defaultRequestDelayMs);
-    }
   }
 
   return {
@@ -833,6 +833,25 @@ function resolveLearnBackfillDelay(): { maxMs: number; minMs: number } {
   if (maxMs < minMs) {
     throw new Error(
       `LEARN_BACKFILL_DELAY_MAX_MS must be greater than or equal to LEARN_BACKFILL_DELAY_MIN_MS. Got min=${minMs} max=${maxMs}.`
+    );
+  }
+
+  return { maxMs, minMs };
+}
+
+function resolveSubstackBackfillDelay(): { maxMs: number; minMs: number } {
+  const minMs = resolvePositiveIntegerEnv(
+    "SUBSTACK_BACKFILL_DELAY_MIN_MS",
+    defaultSubstackRequestDelayMinMs
+  );
+  const maxMs = resolvePositiveIntegerEnv(
+    "SUBSTACK_BACKFILL_DELAY_MAX_MS",
+    defaultSubstackRequestDelayMaxMs
+  );
+
+  if (maxMs < minMs) {
+    throw new Error(
+      `SUBSTACK_BACKFILL_DELAY_MAX_MS must be greater than or equal to SUBSTACK_BACKFILL_DELAY_MIN_MS. Got min=${minMs} max=${maxMs}.`
     );
   }
 
