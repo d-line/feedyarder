@@ -23,6 +23,11 @@ import {
 } from "./backfill/learn.js";
 import { fetchRutrackerBackfillPage } from "./backfill/rutracker.js";
 import {
+  buildRedditListingJsonUrl,
+  fetchRedditBackfillPage,
+  isRedditListingUrl
+} from "./backfill/reddit.js";
+import {
   buildSubstackArchiveApiUrl,
   fetchSubstackArchivePage,
   fetchSubstackPostDetail,
@@ -45,6 +50,8 @@ import type { Pool } from "pg";
 const defaultRequestDelayMs = 500;
 const defaultLearnRequestDelayMinMs = 1_500;
 const defaultLearnRequestDelayMaxMs = 5_000;
+const defaultRedditRequestDelayMinMs = 1_000;
+const defaultRedditRequestDelayMaxMs = 3_000;
 const defaultSubstackRequestDelayMinMs = 5_000;
 const defaultSubstackRequestDelayMaxMs = 15_000;
 const maxPages = 10_000;
@@ -78,7 +85,9 @@ async function run(): Promise<void> {
               ? await backfillGitHubBlogFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
               : isSubstackFeed(feed)
                 ? await backfillSubstackFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-                : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
+                : isRedditFeed(feed)
+                  ? await backfillRedditFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
+                  : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
 
     console.log(
       `Backfill complete for ${feed.title ?? feed.feedUrl}: source=${result.source} pages=${result.pageCount} discovered=${result.discoveredCount} inserted=${result.insertedCount}`
@@ -432,6 +441,52 @@ async function backfillSubstackFeed(
   };
 }
 
+async function backfillRedditFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const redditDelay = resolveRedditBackfillDelay();
+  const seen = new Set<string>();
+  let pageUrl: string | null = resolveRedditBackfillStartUrl(feed);
+  let discoveredCount = 0;
+  let insertedCount = 0;
+
+  while (pageUrl && seen.size < maxPages) {
+    if (seen.has(pageUrl)) {
+      break;
+    }
+
+    seen.add(pageUrl);
+    console.log(`Backfill crawling Reddit pageUrl=${pageUrl}`);
+
+    await sleepRandom(redditDelay);
+    const page = await fetchRedditBackfillPage(pageUrl, feed.id, timeoutMs);
+    console.log(
+      `Backfill Reddit page parsed: subreddit=${page.subreddit ?? "unknown"} items=${page.items.length} rawChildren=${page.itemCount} after=${page.after ?? "none"} next=${page.nextPageUrl ?? "none"}`
+    );
+
+    discoveredCount += page.items.length;
+
+    for (const result of await insertItemsWithResults(pool, feed.id, page.items)) {
+      console.log(formatInsertDebugLine(result.item, result.inserted));
+
+      if (result.inserted) {
+        insertedCount += 1;
+      }
+    }
+
+    pageUrl = page.nextPageUrl;
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount: seen.size,
+    source: "reddit"
+  };
+}
+
 async function crawlRutrackerForum(
   pool: Pool,
   feedId: string,
@@ -572,6 +627,17 @@ function readSourceId(item: NormalizedItem): string | null {
     return substackData.postId;
   }
 
+  const redditData = item.rawExtensionData.reddit;
+
+  if (
+    redditData &&
+    typeof redditData === "object" &&
+    "name" in redditData &&
+    typeof redditData.name === "string"
+  ) {
+    return redditData.name;
+  }
+
   return item.guid?.replace(/^rutracker-topic:/, "") ?? null;
 }
 
@@ -701,6 +767,22 @@ function resolveSubstackBackfillStartUrl(feed: FeedBackfillTarget): string {
   throw new Error(`Feed ${feed.id} does not point to a Substack publication.`);
 }
 
+function resolveRedditBackfillStartUrl(feed: FeedBackfillTarget): string {
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return buildRedditListingJsonUrl(candidate);
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to an old Reddit subreddit listing.`);
+}
+
 function isYouTubeFeed(feed: FeedBackfillTarget): boolean {
   return [feed.siteUrl, feed.feedUrl].some((candidate) => {
     if (!candidate) {
@@ -791,6 +873,16 @@ function isSubstackFeed(feed: FeedBackfillTarget): boolean {
   });
 }
 
+function isRedditFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+
+    return isRedditListingUrl(candidate);
+  });
+}
+
 function extractForumId(url: URL): string | null {
   const searchForumId = url.searchParams.get("f");
 
@@ -853,6 +945,25 @@ function resolveSubstackBackfillDelay(): { maxMs: number; minMs: number } {
   if (maxMs < minMs) {
     throw new Error(
       `SUBSTACK_BACKFILL_DELAY_MAX_MS must be greater than or equal to SUBSTACK_BACKFILL_DELAY_MIN_MS. Got min=${minMs} max=${maxMs}.`
+    );
+  }
+
+  return { maxMs, minMs };
+}
+
+function resolveRedditBackfillDelay(): { maxMs: number; minMs: number } {
+  const minMs = resolvePositiveIntegerEnv(
+    "REDDIT_BACKFILL_DELAY_MIN_MS",
+    defaultRedditRequestDelayMinMs
+  );
+  const maxMs = resolvePositiveIntegerEnv(
+    "REDDIT_BACKFILL_DELAY_MAX_MS",
+    defaultRedditRequestDelayMaxMs
+  );
+
+  if (maxMs < minMs) {
+    throw new Error(
+      `REDDIT_BACKFILL_DELAY_MAX_MS must be greater than or equal to REDDIT_BACKFILL_DELAY_MIN_MS. Got min=${minMs} max=${maxMs}.`
     );
   }
 

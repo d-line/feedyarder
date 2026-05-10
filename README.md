@@ -183,3 +183,15 @@ Substack backfill uses a random delay before each archive and post-detail reques
 ```bash
 SUBSTACK_BACKFILL_DELAY_MIN_MS=15000 SUBSTACK_BACKFILL_DELAY_MAX_MS=45000 npm run backfill -- <substack-feed-id>
 ```
+
+Old Reddit subreddit feeds are backfilled through the listing JSON API and its `after` cursor. Feeds like `https://old.reddit.com/r/ethereum/new/.rss` backfill from `/r/ethereum/new/.json` and use Reddit fullname IDs such as `t3_<postId>` as GUIDs so normal RSS fetches dedupe against the same rows:
+
+```bash
+npm run backfill -- <reddit-feed-id>
+```
+
+Reddit backfill uses a random delay before each listing request. Defaults are 1000-3000ms:
+
+```bash
+REDDIT_BACKFILL_DELAY_MIN_MS=5000 REDDIT_BACKFILL_DELAY_MAX_MS=15000 npm run backfill -- <reddit-feed-id>
+```
