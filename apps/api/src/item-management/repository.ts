@@ -87,6 +87,7 @@ export async function listItems(
 ): Promise<ItemListResponse> {
   const conditions: string[] = [];
   const values: Array<boolean | number | string> = [];
+  let queryIndex: number | null = null;
 
   if (filters.feedId) {
     values.push(filters.feedId);
@@ -110,19 +111,7 @@ export async function listItems(
 
   if (filters.query) {
     values.push(filters.query);
-    const queryIndex = values.length;
-    conditions.push(
-      `(
-        to_tsvector(
-          'simple',
-          coalesce(items.title, '') || ' ' ||
-          coalesce(items.summary_text, '') || ' ' ||
-          coalesce(items.content_html, '') || ' ' ||
-          coalesce(items.author, '')
-        ) @@ plainto_tsquery('simple', $${queryIndex})
-        or to_tsvector('simple', coalesce(feeds.title, '')) @@ plainto_tsquery('simple', $${queryIndex})
-      )`
-    );
+    queryIndex = values.length;
   }
 
   appendCursorCondition(conditions, values, filters.cursor);
@@ -131,31 +120,75 @@ export async function listItems(
   const limitIndex = values.length;
   const whereClause =
     conditions.length > 0 ? `where ${conditions.join(" and ")}` : "";
+  const sql =
+    queryIndex === null
+      ? `
+        select
+          items.id,
+          items.feed_id,
+          feeds.title as feed_title,
+          items.title,
+          items.url,
+          items.author,
+          items.summary_text,
+          items.content_html,
+          items.published_at,
+          items.raw_extension_data,
+          items.is_read,
+          items.is_starred,
+          items.created_at
+        from items
+        join feeds on feeds.id = items.feed_id
+        ${whereClause}
+        order by items.published_at desc nulls last, items.id desc
+        limit $${limitIndex}
+      `
+      : `
+        select *
+        from (
+          select
+            items.id,
+            items.feed_id,
+            feeds.title as feed_title,
+            items.title,
+            items.url,
+            items.author,
+            items.summary_text,
+            items.content_html,
+            items.published_at,
+            items.raw_extension_data,
+            items.is_read,
+            items.is_starred,
+            items.created_at
+          from items
+          join feeds on feeds.id = items.feed_id
+          ${appendSearchCondition(whereClause, itemSearchCondition(queryIndex))}
 
-  const result = await pool.query<ItemRow>(
-    `
-      select
-        items.id,
-        items.feed_id,
-        feeds.title as feed_title,
-        items.title,
-        items.url,
-        items.author,
-        items.summary_text,
-        items.content_html,
-        items.published_at,
-        items.raw_extension_data,
-        items.is_read,
-        items.is_starred,
-        items.created_at
-      from items
-      join feeds on feeds.id = items.feed_id
-      ${whereClause}
-      order by items.published_at desc nulls last, items.id desc
-      limit $${limitIndex}
-    `,
-    values
-  );
+          union
+
+          select
+            items.id,
+            items.feed_id,
+            feeds.title as feed_title,
+            items.title,
+            items.url,
+            items.author,
+            items.summary_text,
+            items.content_html,
+            items.published_at,
+            items.raw_extension_data,
+            items.is_read,
+            items.is_starred,
+            items.created_at
+          from items
+          join feeds on feeds.id = items.feed_id
+          ${appendSearchCondition(whereClause, feedSearchCondition(queryIndex))}
+        ) matching_items
+        order by published_at desc nulls last, id desc
+        limit $${limitIndex}
+      `;
+
+  const result = await pool.query<ItemRow>(sql, values);
 
   const hasMore = result.rows.length > filters.limit;
   const pageRows = hasMore ? result.rows.slice(0, filters.limit) : result.rows;
@@ -165,6 +198,28 @@ export async function listItems(
     items: pageRows.map(mapItem),
     nextCursor: hasMore && lastRow ? encodeCursor(lastRow) : null
   };
+}
+
+function appendSearchCondition(whereClause: string, searchCondition: string): string {
+  if (!whereClause) {
+    return `where ${searchCondition}`;
+  }
+
+  return `${whereClause} and ${searchCondition}`;
+}
+
+function itemSearchCondition(queryIndex: number): string {
+  return `to_tsvector(
+    'simple',
+    coalesce(items.title, '') || ' ' ||
+    coalesce(items.summary_text, '') || ' ' ||
+    coalesce(items.content_html, '') || ' ' ||
+    coalesce(items.author, '')
+  ) @@ plainto_tsquery('simple', $${queryIndex})`;
+}
+
+function feedSearchCondition(queryIndex: number): string {
+  return `to_tsvector('simple', coalesce(feeds.title, '')) @@ plainto_tsquery('simple', $${queryIndex})`;
 }
 
 export async function updateItemState(
