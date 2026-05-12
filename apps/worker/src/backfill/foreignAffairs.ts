@@ -200,6 +200,10 @@ export function parseForeignAffairsTaxonomyPage(
     articleUrls.set(normalized, normalized);
   }
 
+  for (const url of pickStructuredItemListUrls(document, pageUrl)) {
+    articleUrls.set(url, url);
+  }
+
   return {
     articleUrls: Array.from(articleUrls.values()),
     nextPageUrl: pickNextPageUrl(document, pageUrl),
@@ -341,6 +345,76 @@ function pickStructuredArticleString(document: HtmlNode, field: string): string 
   }
 
   return null;
+}
+
+function pickStructuredItemListUrls(document: HtmlNode, pageUrl: string): string[] {
+  const urls = new Map<string, string>();
+
+  for (const script of findElements(document, (element) => element.tagName === "script")) {
+    if (getAttribute(script, "type") !== "application/ld+json") {
+      continue;
+    }
+
+    for (const value of readStructuredItemListUrls(textContent(script))) {
+      const url = resolveUrl(value, pageUrl);
+
+      if (!url || !isArticleUrl(url)) {
+        continue;
+      }
+
+      const normalized = normalizeForeignAffairsUrl(url);
+      urls.set(normalized, normalized);
+    }
+  }
+
+  return Array.from(urls.values());
+}
+
+function readStructuredItemListUrls(json: string): string[] {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return [];
+  }
+
+  const urls: string[] = [];
+
+  collectStructuredItemListUrls(parsed, urls);
+
+  return urls;
+}
+
+function collectStructuredItemListUrls(value: unknown, urls: string[]): void {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectStructuredItemListUrls(entry, urls);
+    }
+
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  const itemListElements = record.itemListElement ?? record.ItemListElement;
+
+  if (Array.isArray(itemListElements)) {
+    for (const entry of itemListElements) {
+      const entryUrl = entry && typeof entry === "object"
+        ? (entry as Record<string, unknown>).url
+        : null;
+
+      if (typeof entryUrl === "string") {
+        urls.push(entryUrl);
+      }
+    }
+  }
+
+  collectStructuredItemListUrls(record.mainEntity, urls);
 }
 
 function readStructuredField(json: string, field: string): string | null {

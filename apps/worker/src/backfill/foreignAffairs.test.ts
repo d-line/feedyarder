@@ -85,6 +85,41 @@ describe("parseForeignAffairsTaxonomyPage", () => {
     });
   });
 
+  it("extracts older article URLs from structured ItemList metadata", () => {
+    const result = parseForeignAffairsTaxonomyPage(
+      `
+      <html>
+        <head>
+          <script type="application/ld+json">
+            {
+              "@context": "https://schema.org",
+              "@id": "https://www.foreignaffairs.com/tags/911",
+              "mainEntity": {
+                "@type": "ItemList",
+                "numberOfItems": 62,
+                "ItemListElement": [
+                  {
+                    "@type": "ListItem",
+                    "position": "22",
+                    "url": "https://www.foreignaffairs.com/articles/united-states/2021-08-24/foreign-policy-them-and-us"
+                  }
+                ]
+              }
+            }
+          </script>
+        </head>
+        <body>
+          <a href="/authors/ben-rhodes">Ben Rhodes</a>
+        </body>
+      </html>`,
+      "https://www.foreignaffairs.com/tags/911"
+    );
+
+    expect(result.articleUrls).toContain(
+      "https://www.foreignaffairs.com/articles/united-states/2021-08-24/foreign-policy-them-and-us"
+    );
+  });
+
   it("stops when the next page link is missing", () => {
     const result = parseForeignAffairsTaxonomyPage(
       `
