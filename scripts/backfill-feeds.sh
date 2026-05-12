@@ -24,6 +24,8 @@ where is_paused = false
     or site_url ilike '%github.blog/%'
     or feed_url ilike '%reddit.com/r/%'
     or site_url ilike '%reddit.com/r/%'
+    or feed_url ilike '%foreignaffairs.com/%'
+    or site_url ilike '%foreignaffairs.com/%'
     or feed_url ilike '%.substack.com/%'
     or site_url ilike '%.substack.com/%'
     or feed_url ilike '%blog.bytebytego.com/%'

@@ -15,6 +15,13 @@ import {
   resolveGitHubBlogRootUrl
 } from "./backfill/githubBlog.js";
 import {
+  fetchForeignAffairsArticle,
+  fetchForeignAffairsTaxonomies,
+  fetchForeignAffairsTaxonomyPage,
+  isForeignAffairsUrl,
+  resolveForeignAffairsRootUrl
+} from "./backfill/foreignAffairs.js";
+import {
   fetchLearnCategories,
   fetchLearnCategoryPage,
   fetchLearnGuideDetail,
@@ -52,6 +59,8 @@ const defaultLearnRequestDelayMinMs = 1_500;
 const defaultLearnRequestDelayMaxMs = 5_000;
 const defaultRedditRequestDelayMinMs = 1_000;
 const defaultRedditRequestDelayMaxMs = 3_000;
+const defaultForeignAffairsRequestDelayMinMs = 3_000;
+const defaultForeignAffairsRequestDelayMaxMs = 8_000;
 const defaultSubstackRequestDelayMinMs = 5_000;
 const defaultSubstackRequestDelayMaxMs = 15_000;
 const maxPages = 10_000;
@@ -87,7 +96,9 @@ async function run(): Promise<void> {
                 ? await backfillSubstackFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
                 : isRedditFeed(feed)
                   ? await backfillRedditFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-                  : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
+                  : isForeignAffairsFeed(feed)
+                    ? await backfillForeignAffairsFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
+                    : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
 
     console.log(
       `Backfill complete for ${feed.title ?? feed.feedUrl}: source=${result.source} pages=${result.pageCount} discovered=${result.discoveredCount} inserted=${result.insertedCount}`
@@ -487,6 +498,105 @@ async function backfillRedditFeed(
   };
 }
 
+async function backfillForeignAffairsFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const startUrl = resolveForeignAffairsBackfillStartUrl(feed);
+  const foreignAffairsDelay = resolveForeignAffairsBackfillDelay();
+  const seenArticleUrls = new Set<string>();
+  const seenSourceIds = new Set<string>();
+  const seenTaxonomyPageUrls = new Set<string>();
+  let discoveredCount = 0;
+  let insertedCount = 0;
+  let pageCount = 0;
+
+  await sleepRandom(foreignAffairsDelay);
+  const taxonomies = await fetchForeignAffairsTaxonomies(startUrl, timeoutMs);
+  console.log(`Backfill Foreign Affairs taxonomies discovered: count=${taxonomies.length}`);
+
+  for (const taxonomy of taxonomies) {
+    let pageUrl: string | null = taxonomy.url;
+
+    while (pageUrl && pageCount < maxPages) {
+      if (seenTaxonomyPageUrls.has(pageUrl)) {
+        break;
+      }
+
+      seenTaxonomyPageUrls.add(pageUrl);
+      console.log(`Backfill crawling Foreign Affairs taxonomy=${taxonomy.title} pageUrl=${pageUrl}`);
+
+      await sleepRandom(foreignAffairsDelay);
+      const page = await fetchForeignAffairsTaxonomyPage(pageUrl, timeoutMs);
+      pageCount += 1;
+      console.log(
+        `Backfill Foreign Affairs taxonomy page parsed: taxonomy=${taxonomy.title} page=${page.pageNumber} articleUrls=${page.articleUrls.length} next=${page.nextPageUrl ?? "none"}`
+      );
+
+      const items: NormalizedItem[] = [];
+
+      for (const articleUrl of page.articleUrls) {
+        if (seenArticleUrls.has(articleUrl)) {
+          console.log(`Backfill Foreign Affairs article skipped_duplicate_discovery | url=${articleUrl}`);
+          continue;
+        }
+
+        seenArticleUrls.add(articleUrl);
+        console.log(`Backfill Foreign Affairs article detail fetching | url=${articleUrl}`);
+
+        await sleepRandom(foreignAffairsDelay);
+        const item = await fetchForeignAffairsArticle(articleUrl, feed.id, timeoutMs, {
+          sourcePageUrl: pageUrl,
+          taxonomy
+        });
+
+        if (!item) {
+          console.log(`Backfill Foreign Affairs article skipped_normalize_failed | url=${articleUrl}`);
+          continue;
+        }
+
+        const sourceId = readSourceId(item);
+
+        if (sourceId && seenSourceIds.has(sourceId)) {
+          console.log(
+            `Backfill Foreign Affairs article skipped_duplicate_normalized | sourceId=${sourceId} | url=${item.url ?? articleUrl}`
+          );
+          continue;
+        }
+
+        if (sourceId) {
+          seenSourceIds.add(sourceId);
+        }
+
+        console.log(
+          `Backfill Foreign Affairs article normalized | sourceId=${sourceId ?? "unknown"} | publishedAt=${item.publishedAt ?? "null"} | title=${item.title ?? "null"} | url=${item.url ?? "null"}`
+        );
+        items.push(item);
+      }
+
+      discoveredCount += items.length;
+
+      for (const result of await insertItemsWithResults(pool, feed.id, items)) {
+        console.log(formatInsertDebugLine(result.item, result.inserted));
+
+        if (result.inserted) {
+          insertedCount += 1;
+        }
+      }
+
+      pageUrl = page.nextPageUrl;
+    }
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount,
+    source: "foreign-affairs"
+  };
+}
+
 async function crawlRutrackerForum(
   pool: Pool,
   feedId: string,
@@ -638,6 +748,17 @@ function readSourceId(item: NormalizedItem): string | null {
     return redditData.name;
   }
 
+  const foreignAffairsData = item.rawExtensionData.foreignAffairs;
+
+  if (
+    foreignAffairsData &&
+    typeof foreignAffairsData === "object" &&
+    "nodeId" in foreignAffairsData &&
+    typeof foreignAffairsData.nodeId === "string"
+  ) {
+    return foreignAffairsData.nodeId;
+  }
+
   return item.guid?.replace(/^rutracker-topic:/, "") ?? null;
 }
 
@@ -783,6 +904,22 @@ function resolveRedditBackfillStartUrl(feed: FeedBackfillTarget): string {
   throw new Error(`Feed ${feed.id} does not point to an old Reddit subreddit listing.`);
 }
 
+function resolveForeignAffairsBackfillStartUrl(feed: FeedBackfillTarget): string {
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return resolveForeignAffairsRootUrl(candidate).toString();
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to Foreign Affairs.`);
+}
+
 function isYouTubeFeed(feed: FeedBackfillTarget): boolean {
   return [feed.siteUrl, feed.feedUrl].some((candidate) => {
     if (!candidate) {
@@ -883,6 +1020,16 @@ function isRedditFeed(feed: FeedBackfillTarget): boolean {
   });
 }
 
+function isForeignAffairsFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+
+    return isForeignAffairsUrl(candidate);
+  });
+}
+
 function extractForumId(url: URL): string | null {
   const searchForumId = url.searchParams.get("f");
 
@@ -964,6 +1111,25 @@ function resolveRedditBackfillDelay(): { maxMs: number; minMs: number } {
   if (maxMs < minMs) {
     throw new Error(
       `REDDIT_BACKFILL_DELAY_MAX_MS must be greater than or equal to REDDIT_BACKFILL_DELAY_MIN_MS. Got min=${minMs} max=${maxMs}.`
+    );
+  }
+
+  return { maxMs, minMs };
+}
+
+function resolveForeignAffairsBackfillDelay(): { maxMs: number; minMs: number } {
+  const minMs = resolvePositiveIntegerEnv(
+    "FOREIGN_AFFAIRS_BACKFILL_DELAY_MIN_MS",
+    defaultForeignAffairsRequestDelayMinMs
+  );
+  const maxMs = resolvePositiveIntegerEnv(
+    "FOREIGN_AFFAIRS_BACKFILL_DELAY_MAX_MS",
+    defaultForeignAffairsRequestDelayMaxMs
+  );
+
+  if (maxMs < minMs) {
+    throw new Error(
+      `FOREIGN_AFFAIRS_BACKFILL_DELAY_MAX_MS must be greater than or equal to FOREIGN_AFFAIRS_BACKFILL_DELAY_MIN_MS. Got min=${minMs} max=${maxMs}.`
     );
   }
 

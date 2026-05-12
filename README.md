@@ -195,3 +195,15 @@ Reddit backfill uses a random delay before each listing request. Defaults are 10
 ```bash
 REDDIT_BACKFILL_DELAY_MIN_MS=5000 REDDIT_BACKFILL_DELAY_MAX_MS=15000 npm run backfill -- <reddit-feed-id>
 ```
+
+Foreign Affairs feeds are backfilled by crawling the public topics and tags index, following each topic/tag page's `?page=` pagination, and fetching each unique article page for RSS-compatible Drupal node IDs:
+
+```bash
+npm run backfill -- <foreign-affairs-feed-id>
+```
+
+Foreign Affairs backfill uses a random delay before each listing and article request. Defaults are 3000-8000ms:
+
+```bash
+FOREIGN_AFFAIRS_BACKFILL_DELAY_MIN_MS=8000 FOREIGN_AFFAIRS_BACKFILL_DELAY_MAX_MS=20000 npm run backfill -- <foreign-affairs-feed-id>
+```
