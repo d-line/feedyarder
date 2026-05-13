@@ -38,7 +38,7 @@ interface DataLayerArticle {
 
 const requestHeaders: HeadersInit = {
   accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "user-agent": "Feedyarder/0.1 (+https://localhost)"
+  "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.2 Safari/605.1.15"
 };
 
 const nonArticlePathPrefixes = [
@@ -91,7 +91,6 @@ export async function fetchForeignAffairsTaxonomies(
   if (!response.ok) {
     throw new Error(`Foreign Affairs topics request failed with HTTP ${response.status}.`);
   }
-
   return parseForeignAffairsTaxonomies(await response.text(), url.toString());
 }
 
@@ -187,17 +186,28 @@ export function parseForeignAffairsTaxonomyPage(
 ): ForeignAffairsTaxonomyPage {
   const document = parse(html);
   const articleUrls = new Map<string, string>();
+  const searchResults = findElements(
+    document,
+    (element) => element.tagName === "div" && hasClass(element, "search-results")
+  );
+  const resultLists = searchResults.flatMap((element) =>
+    findElements(element, (candidate) => candidate.tagName === "ul")
+  );
 
-  for (const link of findElements(document, (element) => element.tagName === "a")) {
-    const href = getAttribute(link, "href");
-    const url = href ? resolveUrl(href, pageUrl) : null;
+  for (const resultList of resultLists) {
+    for (const link of findElements(resultList, (element) => element.tagName === "a")) {
+      const href = getAttribute(link, "href");
+      const url = href ? resolveUrl(href, pageUrl) : null;
 
-    if (!url || !isArticleUrl(url)) {
-      continue;
+      console.log(`Found search result link: ${url ?? "invalid url"} with text "${normalizeWhitespace(textContent(link))}"`);
+      
+      if (!url || !isArticleUrl(url)) {
+        continue;
+      }
+
+      const normalized = normalizeForeignAffairsUrl(url);
+      articleUrls.set(normalized, normalized);
     }
-
-    const normalized = normalizeForeignAffairsUrl(url);
-    articleUrls.set(normalized, normalized);
   }
 
   for (const url of pickStructuredItemListUrls(document, pageUrl)) {
@@ -674,6 +684,10 @@ function textContent(node: HtmlNode): string {
   return childNodes(node)
     .map((child) => textContent(child))
     .join(" ");
+}
+
+function hasClass(element: HtmlElement, className: string): boolean {
+  return (getAttribute(element, "class") ?? "").split(/\s+/).includes(className);
 }
 
 function childNodes(node: HtmlNode): HtmlNode[] {

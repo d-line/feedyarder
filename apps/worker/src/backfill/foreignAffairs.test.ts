@@ -60,10 +60,19 @@ describe("parseForeignAffairsTaxonomyPage", () => {
       <html>
         <head><title>Geopolitics | Foreign Affairs</title></head>
         <body>
-          <a href="/united-states/china-squandering-golden-opportunity-david-shambaugh">Article</a>
+          <a href="/united-states/outside-search-results">Outside search results</a>
           <a href="/authors/david-shambaugh">Author</a>
           <a href="/browse/essay">Essay</a>
-          <a href="/reviews/are-america-and-china-condemned-repeat-history-samet">Review</a>
+          <div class="search-results">
+            <ul>
+              <li>
+                <a href="/united-states/china-squandering-golden-opportunity-david-shambaugh">Article</a>
+              </li>
+              <li>
+                <a href="/reviews/are-america-and-china-condemned-repeat-history-samet">Review</a>
+              </li>
+            </ul>
+          </div>
           <nav>
             <a href="?page=0">1</a>
             <a href="?page=1">2</a>

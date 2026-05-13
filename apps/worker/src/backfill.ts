@@ -513,9 +513,10 @@ async function backfillForeignAffairsFeed(
   let pageCount = 0;
 
   await sleepRandom(foreignAffairsDelay);
+  console.log("==================================================================================================");
   const taxonomies = await fetchForeignAffairsTaxonomies(startUrl, timeoutMs);
   console.log(`Backfill Foreign Affairs taxonomies discovered: count=${taxonomies.length}`);
-
+  console.log("==================================================================================================");
   for (const taxonomy of taxonomies) {
     let pageUrl: string | null = taxonomy.url;
 
@@ -525,18 +526,23 @@ async function backfillForeignAffairsFeed(
       }
 
       seenTaxonomyPageUrls.add(pageUrl);
+      
+      console.log("\n==================================================================================================");
       console.log(`Backfill crawling Foreign Affairs taxonomy=${taxonomy.title} pageUrl=${pageUrl}`);
+      console.log("==================================================================================================");
 
       await sleepRandom(foreignAffairsDelay);
       const page = await fetchForeignAffairsTaxonomyPage(pageUrl, timeoutMs);
       pageCount += 1;
+      console.log("\n==================================================================================================");
       console.log(
         `Backfill Foreign Affairs taxonomy page parsed: taxonomy=${taxonomy.title} page=${page.pageNumber} articleUrls=${page.articleUrls.length} next=${page.nextPageUrl ?? "none"}`
       );
-
+      console.log("==================================================================================================");
       const items: NormalizedItem[] = [];
 
       for (const articleUrl of page.articleUrls) {
+        console.log(`\n-----------------------------------------------------------------------------------------------`);
         if (seenArticleUrls.has(articleUrl)) {
           console.log(`Backfill Foreign Affairs article skipped_duplicate_discovery | url=${articleUrl}`);
           continue;
@@ -573,6 +579,7 @@ async function backfillForeignAffairsFeed(
           `Backfill Foreign Affairs article normalized | sourceId=${sourceId ?? "unknown"} | publishedAt=${item.publishedAt ?? "null"} | title=${item.title ?? "null"} | url=${item.url ?? "null"}`
         );
         items.push(item);
+        console.log(`-----------------------------------------------------------------------------------------------`);
       }
 
       discoveredCount += items.length;
