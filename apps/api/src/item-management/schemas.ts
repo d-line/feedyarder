@@ -4,7 +4,7 @@ export const listItemsQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
   feedId: z.string().uuid().optional(),
   folderId: z.string().uuid().optional(),
-  limit: z.coerce.number().int().positive().max(100).default(20),
+  limit: z.coerce.number().int().positive().max(1000).default(100),
   q: z.string().trim().min(1).optional(),
   read: z
     .enum(["true", "false"])
