@@ -22,6 +22,11 @@ import {
   resolveForeignAffairsRootUrl
 } from "./backfill/foreignAffairs.js";
 import {
+  fetchFlibustaBackfillPage,
+  isFlibustaGenreUrl,
+  resolveFlibustaGenreUrl
+} from "./backfill/flibusta.js";
+import {
   fetchLearnCategories,
   fetchLearnCategoryPage,
   fetchLearnGuideDetail,
@@ -61,6 +66,7 @@ const defaultRedditRequestDelayMinMs = 1_000;
 const defaultRedditRequestDelayMaxMs = 3_000;
 const defaultForeignAffairsRequestDelayMinMs = 3_000;
 const defaultForeignAffairsRequestDelayMaxMs = 8_000;
+const defaultFlibustaRequestDelayMs = 500;
 const defaultSubstackRequestDelayMinMs = 5_000;
 const defaultSubstackRequestDelayMaxMs = 15_000;
 const maxPages = 10_000;
@@ -98,7 +104,9 @@ async function run(): Promise<void> {
                   ? await backfillRedditFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
                   : isForeignAffairsFeed(feed)
                     ? await backfillForeignAffairsFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-                    : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
+                    : isFlibustaFeed(feed)
+                      ? await backfillFlibustaFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
+                      : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
 
     console.log(
       `Backfill complete for ${feed.title ?? feed.feedUrl}: source=${result.source} pages=${result.pageCount} discovered=${result.discoveredCount} inserted=${result.insertedCount}`
@@ -604,6 +612,54 @@ async function backfillForeignAffairsFeed(
   };
 }
 
+async function backfillFlibustaFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const seen = new Set<string>();
+  let pageUrl: string | null = resolveFlibustaBackfillStartUrl(feed);
+  let discoveredCount = 0;
+  let insertedCount = 0;
+
+  while (pageUrl && seen.size < maxPages) {
+    if (seen.has(pageUrl)) {
+      break;
+    }
+
+    seen.add(pageUrl);
+    console.log(`Backfill crawling Flibusta pageUrl=${pageUrl}`);
+
+    const page = await fetchFlibustaBackfillPage(pageUrl, feed.id, timeoutMs);
+    console.log(
+      `Backfill Flibusta page parsed: genre=${page.genreSlug} title=${page.genreTitle ?? "unknown"} items=${page.items.length} next=${page.nextPageUrl ?? "none"}`
+    );
+
+    discoveredCount += page.items.length;
+
+    for (const result of await insertItemsWithResults(pool, feed.id, page.items)) {
+      console.log(formatInsertDebugLine(result.item, result.inserted));
+
+      if (result.inserted) {
+        insertedCount += 1;
+      }
+    }
+
+    pageUrl = page.nextPageUrl;
+
+    if (pageUrl) {
+      await sleep(defaultFlibustaRequestDelayMs);
+    }
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount: seen.size,
+    source: "flibusta"
+  };
+}
+
 async function crawlRutrackerForum(
   pool: Pool,
   feedId: string,
@@ -764,6 +820,17 @@ function readSourceId(item: NormalizedItem): string | null {
     typeof foreignAffairsData.nodeId === "string"
   ) {
     return foreignAffairsData.nodeId;
+  }
+
+  const flibustaData = item.rawExtensionData.flibusta;
+
+  if (
+    flibustaData &&
+    typeof flibustaData === "object" &&
+    "bookId" in flibustaData &&
+    typeof flibustaData.bookId === "string"
+  ) {
+    return flibustaData.bookId;
   }
 
   return item.guid?.replace(/^rutracker-topic:/, "") ?? null;
@@ -927,6 +994,22 @@ function resolveForeignAffairsBackfillStartUrl(feed: FeedBackfillTarget): string
   throw new Error(`Feed ${feed.id} does not point to Foreign Affairs.`);
 }
 
+function resolveFlibustaBackfillStartUrl(feed: FeedBackfillTarget): string {
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return resolveFlibustaGenreUrl(candidate).toString();
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to a Flibusta genre feed.`);
+}
+
 function isYouTubeFeed(feed: FeedBackfillTarget): boolean {
   return [feed.siteUrl, feed.feedUrl].some((candidate) => {
     if (!candidate) {
@@ -1034,6 +1117,16 @@ function isForeignAffairsFeed(feed: FeedBackfillTarget): boolean {
     }
 
     return isForeignAffairsUrl(candidate);
+  });
+}
+
+function isFlibustaFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+
+    return isFlibustaGenreUrl(candidate);
   });
 }
 
