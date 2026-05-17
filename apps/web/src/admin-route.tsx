@@ -714,7 +714,7 @@ export function AdminRoute() {
         )}
       </section>
 
-      <section className="table-shell" aria-label="Feed health">
+      <section className="table-shell feed-health-table" aria-label="Feed health">
         <div className="table-head">
           <span>feed</span>
           <span>folder</span>
