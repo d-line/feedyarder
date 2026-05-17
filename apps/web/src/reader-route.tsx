@@ -6,7 +6,7 @@ import {
   listFeeds,
   listFolders,
   listItems,
-  updateItemState
+  updateItemState,
 } from "./api-client.js";
 import { StoryExpandedCard } from "./story-expanded-card.js";
 
@@ -26,15 +26,21 @@ export function ReaderRoute() {
     folderId: "",
     q: "",
     readMode: "unread" as "all" | "unread",
-    starredOnly: false
+    starredOnly: false,
   });
   const itemRefs = useRef<Record<string, HTMLElement | null>>({});
-  const lastCollapsedButtonRef = useRef<HTMLButtonElement | null>(null);
+  const paginationTriggerRef = useRef<HTMLButtonElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     void loadReaderState(true);
-  }, [filters.feedId, filters.folderId, filters.q, filters.readMode, filters.starredOnly]);
+  }, [
+    filters.feedId,
+    filters.folderId,
+    filters.q,
+    filters.readMode,
+    filters.starredOnly,
+  ]);
 
   useEffect(() => {
     if (items.length === 0) {
@@ -57,7 +63,7 @@ export function ReaderRoute() {
       return;
     }
 
-    const target = lastCollapsedButtonRef.current;
+    const target = paginationTriggerRef.current;
 
     if (!target || typeof IntersectionObserver === "undefined") {
       return;
@@ -72,7 +78,7 @@ export function ReaderRoute() {
         void loadReaderState(false);
       },
       {
-        threshold: 0.01
+        threshold: 0.01,
       }
     );
 
@@ -92,7 +98,10 @@ export function ReaderRoute() {
       }
 
       if (isInteractiveTarget(event.target)) {
-        if (event.key === "Escape" && document.activeElement instanceof HTMLElement) {
+        if (
+          event.key === "Escape" &&
+          document.activeElement instanceof HTMLElement
+        ) {
           document.activeElement.blur();
         }
 
@@ -100,7 +109,8 @@ export function ReaderRoute() {
       }
 
       const activeIndex = items.findIndex((item) => item.id === activeItemId);
-      const selectedItem = activeIndex >= 0 ? items[activeIndex] ?? null : (items[0] ?? null);
+      const selectedItem =
+        activeIndex >= 0 ? items[activeIndex] ?? null : items[0] ?? null;
 
       switch (key) {
         case "/":
@@ -117,14 +127,14 @@ export function ReaderRoute() {
           event.preventDefault();
           setFilters((current) => ({
             ...current,
-            readMode: "all"
+            readMode: "all",
           }));
           return;
         case "u":
           event.preventDefault();
           setFilters((current) => ({
             ...current,
-            readMode: "unread"
+            readMode: "unread",
           }));
           return;
         default:
@@ -140,11 +150,14 @@ export function ReaderRoute() {
         case "ArrowDown": {
           event.preventDefault();
 
-          const nextItem = activeIndex >= 0 ? items[activeIndex + 1] ?? null : (items[0] ?? null);
+          const nextItem =
+            activeIndex >= 0
+              ? items[activeIndex + 1] ?? null
+              : items[0] ?? null;
 
           if (nextItem) {
             selectItem(nextItem.id, {
-              carryExpanded: expandedItemId === selectedItem.id
+              carryExpanded: expandedItemId === selectedItem.id,
             });
           }
 
@@ -163,7 +176,7 @@ export function ReaderRoute() {
 
           if (previousItem) {
             selectItem(previousItem.id, {
-              carryExpanded: expandedItemId === selectedItem.id
+              carryExpanded: expandedItemId === selectedItem.id,
             });
           }
 
@@ -207,12 +220,14 @@ export function ReaderRoute() {
       const [foldersResponse, feedsResponse, itemResponse] = await Promise.all([
         listFolders(),
         listFeeds(),
-        loadItemsPage(reset ? null : nextCursor)
+        loadItemsPage(reset ? null : nextCursor),
       ]);
 
       setFolders(foldersResponse);
       setFeeds(feedsResponse);
-      setItems((current) => (reset ? itemResponse.items : [...current, ...itemResponse.items]));
+      setItems((current) =>
+        reset ? itemResponse.items : [...current, ...itemResponse.items]
+      );
       setNextCursor(itemResponse.nextCursor);
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
@@ -230,24 +245,28 @@ export function ReaderRoute() {
       ...(filters.folderId ? { folderId: filters.folderId } : {}),
       ...(filters.q ? { q: filters.q } : {}),
       ...(filters.readMode === "unread" ? { read: false } : {}),
-      ...(filters.starredOnly ? { starred: true } : {})
+      ...(filters.starredOnly ? { starred: true } : {}),
     });
   }
 
   async function handleToggleRead(item: Item): Promise<void> {
     const updated = await updateItemState(item.id, {
-      isRead: !item.isRead
+      isRead: !item.isRead,
     });
 
-    setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+    setItems((current) =>
+      current.map((entry) => (entry.id === updated.id ? updated : entry))
+    );
   }
 
   async function handleToggleStar(item: Item): Promise<void> {
     const updated = await updateItemState(item.id, {
-      isStarred: !item.isStarred
+      isStarred: !item.isStarred,
     });
 
-    setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+    setItems((current) =>
+      current.map((entry) => (entry.id === updated.id ? updated : entry))
+    );
   }
 
   function scrollItemToTop(itemId: string): void {
@@ -258,20 +277,28 @@ export function ReaderRoute() {
     }
 
     const listElement = element.parentElement;
-    const listStyles = listElement ? window.getComputedStyle(listElement) : null;
+    const listStyles = listElement
+      ? window.getComputedStyle(listElement)
+      : null;
     const rowStyles = window.getComputedStyle(element);
-    const rowGap = Number.parseFloat(listStyles?.rowGap ?? listStyles?.gap ?? "0");
+    const rowGap = Number.parseFloat(
+      listStyles?.rowGap ?? listStyles?.gap ?? "0"
+    );
     const borderTop = Number.parseFloat(rowStyles.borderTopWidth || "0");
     const visualOffset = rowGap + borderTop + 6;
-    const top = window.scrollY + element.getBoundingClientRect().top - visualOffset;
+    const top =
+      window.scrollY + element.getBoundingClientRect().top - visualOffset;
 
     window.scrollTo({
       behavior: "smooth",
-      top: Math.max(0, top)
+      top: Math.max(0, top),
     });
   }
 
-  function selectItem(itemId: string, options?: { carryExpanded?: boolean }): void {
+  function selectItem(
+    itemId: string,
+    options?: { carryExpanded?: boolean }
+  ): void {
     setActiveItemId(itemId);
 
     if (options?.carryExpanded) {
@@ -286,7 +313,7 @@ export function ReaderRoute() {
 
     requestAnimationFrame(() => {
       itemRefs.current[itemId]?.scrollIntoView({
-        block: "nearest"
+        block: "nearest",
       });
     });
   }
@@ -310,10 +337,12 @@ export function ReaderRoute() {
         <p className="section-kicker">$ reader</p>
         <h1>single-pane story stream</h1>
         <p className="section-copy">
-          Real item data now comes from the public API with cursor pagination, filters, and state toggles.
+          Real item data now comes from the public API with cursor pagination,
+          filters, and state toggles.
         </p>
         <p className="section-copy">
-          shortcuts: `j/k` move, `enter` open, `m` read, `s` star, `/` search, `u` unread, `a` all
+          shortcuts: `j/k` move, `enter` open, `m` read, `s` star, `/` search,
+          `u` unread, `a` all
         </p>
       </header>
 
@@ -329,7 +358,7 @@ export function ReaderRoute() {
             onClick={() =>
               setFilters((current) => ({
                 ...current,
-                readMode: "unread"
+                readMode: "unread",
               }))
             }
             type="button"
@@ -338,12 +367,14 @@ export function ReaderRoute() {
           </button>
           <button
             className={
-              filters.readMode === "all" ? "toolbar-button toolbar-button-active" : "toolbar-button"
+              filters.readMode === "all"
+                ? "toolbar-button toolbar-button-active"
+                : "toolbar-button"
             }
             onClick={() =>
               setFilters((current) => ({
                 ...current,
-                readMode: "all"
+                readMode: "all",
               }))
             }
             type="button"
@@ -352,12 +383,14 @@ export function ReaderRoute() {
           </button>
           <button
             className={
-              filters.starredOnly ? "toolbar-button toolbar-button-active" : "toolbar-button"
+              filters.starredOnly
+                ? "toolbar-button toolbar-button-active"
+                : "toolbar-button"
             }
             onClick={() =>
               setFilters((current) => ({
                 ...current,
-                starredOnly: !current.starredOnly
+                starredOnly: !current.starredOnly,
               }))
             }
             type="button"
@@ -373,7 +406,7 @@ export function ReaderRoute() {
               onChange={(event) =>
                 setFilters((current) => ({
                   ...current,
-                  folderId: event.target.value
+                  folderId: event.target.value,
                 }))
               }
               value={filters.folderId}
@@ -393,7 +426,7 @@ export function ReaderRoute() {
               onChange={(event) =>
                 setFilters((current) => ({
                   ...current,
-                  feedId: event.target.value
+                  feedId: event.target.value,
                 }))
               }
               value={filters.feedId}
@@ -413,7 +446,7 @@ export function ReaderRoute() {
               event.preventDefault();
               setFilters((current) => ({
                 ...current,
-                q: searchInput.trim()
+                q: searchInput.trim(),
               }));
             }}
           >
@@ -433,10 +466,10 @@ export function ReaderRoute() {
       {isLoading ? <p className="section-copy">Loading items...</p> : null}
 
       <div className="story-list" role="list">
-        {items.map((item) => {
+        {items.map((item, index) => {
           const isExpanded = expandedItemId === item.id;
           const isActive = item.id === activeItemId;
-          const isLastItem = item.id === (items[items.length - 1]?.id ?? "");
+          const isPaginationTrigger = index === Math.max(0, items.length - 50);
 
           return (
             <article
@@ -447,8 +480,8 @@ export function ReaderRoute() {
                     ? "story-row story-row-read story-row-active"
                     : "story-row story-row-read"
                   : isActive
-                    ? "story-row story-row-active"
-                    : "story-row"
+                  ? "story-row story-row-active"
+                  : "story-row"
               }
               ref={(element) => {
                 itemRefs.current[item.id] = element;
@@ -457,21 +490,31 @@ export function ReaderRoute() {
               <button
                 className="story-collapsed story-collapsed-button"
                 onClick={() => handleToggleExpanded(item.id)}
-                ref={isLastItem ? lastCollapsedButtonRef : undefined}
+                ref={isPaginationTrigger ? paginationTriggerRef : undefined}
                 type="button"
               >
-                <span className="story-active-marker">{isActive ? ">" : " "}</span>
+                <span className="story-active-marker">
+                  {isActive ? ">" : " "}
+                </span>
                 <span className="story-id">{item.id.slice(0, 8)}</span>
-                <span className="story-feed">{item.feedTitle ?? "unknown-feed"}</span>
-                <span className="story-title">{item.title ?? "(untitled item)"}</span>
+                <span className="story-feed">
+                  {item.feedTitle ?? "unknown-feed"}
+                </span>
+                <span className="story-title">
+                  {item.title ?? "(untitled item)"}
+                </span>
                 <span className="story-time">{formatItemTimestamp(item)}</span>
               </button>
 
               {isExpanded ? (
                 <StoryExpandedCard
                   item={item}
-                  onToggleRead={(targetItem) => void handleToggleRead(targetItem)}
-                  onToggleStar={(targetItem) => void handleToggleStar(targetItem)}
+                  onToggleRead={(targetItem) =>
+                    void handleToggleRead(targetItem)
+                  }
+                  onToggleStar={(targetItem) =>
+                    void handleToggleStar(targetItem)
+                  }
                 />
               ) : null}
             </article>
@@ -521,5 +564,7 @@ function formatRelativeTimestamp(value: string): string {
 }
 
 function formatItemTimestamp(item: Item): string {
-  return item.publishedAt ? formatRelativeTimestamp(item.publishedAt) : "(no pub date)";
+  return item.publishedAt
+    ? formatRelativeTimestamp(item.publishedAt)
+    : "(no pub date)";
 }

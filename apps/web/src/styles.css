@@ -500,6 +500,41 @@ button:disabled {
   flex-wrap: wrap;
 }
 
+.feed-health-table {
+  overflow-x: auto;
+}
+
+.feed-health-table .table-head,
+.feed-health-table .table-row {
+  display: grid;
+  grid-template-columns: 34rem 14rem 8rem 7rem 6rem 19rem;
+  align-items: start;
+  min-width: 94rem;
+}
+
+.feed-health-table .table-head > span,
+.feed-health-table .table-row > span {
+  min-width: 0;
+  flex: initial;
+}
+
+.feed-health-table .table-row-empty {
+  grid-template-columns: 1fr;
+  min-width: 0;
+}
+
+.feed-health-table .table-row-empty > span {
+  grid-column: 1 / -1;
+}
+
+.feed-health-table .table-row > span:first-child strong,
+.feed-health-table .table-subline {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .status-pill {
   display: inline-flex;
   max-width: fit-content;
