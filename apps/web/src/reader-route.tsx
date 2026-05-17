@@ -296,11 +296,9 @@ export function ReaderRoute() {
     setExpandedItemId((current) => {
       const nextItemId = current === itemId ? null : itemId;
 
-      if (nextItemId) {
-        requestAnimationFrame(() => {
-          scrollItemToTop(itemId);
-        });
-      }
+      requestAnimationFrame(() => {
+        scrollItemToTop(itemId);
+      });
 
       return nextItemId;
     });
