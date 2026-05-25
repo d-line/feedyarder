@@ -27,6 +27,13 @@ import {
   resolveFlibustaGenreUrl
 } from "./backfill/flibusta.js";
 import {
+  fetchNprFreshAirArchivePage,
+  isNprFreshAirUrl,
+  type NprArchivePage,
+  resolveNprFreshAirArchiveUrl,
+  sameNprArchiveMonth
+} from "./backfill/npr.js";
+import {
   fetchLearnCategories,
   fetchLearnCategoryPage,
   fetchLearnGuideDetail,
@@ -67,6 +74,7 @@ const defaultRedditRequestDelayMaxMs = 3_000;
 const defaultForeignAffairsRequestDelayMinMs = 3_000;
 const defaultForeignAffairsRequestDelayMaxMs = 8_000;
 const defaultFlibustaRequestDelayMs = 500;
+const defaultNprRequestDelayMs = 500;
 const defaultSubstackRequestDelayMinMs = 5_000;
 const defaultSubstackRequestDelayMaxMs = 15_000;
 const maxPages = 10_000;
@@ -80,6 +88,8 @@ async function run(): Promise<void> {
 
   const config = getConfig();
   const pool = getPool(config.DATABASE_URL);
+
+  console.log(`Starting backfill for feed ${feedId} with config: ${JSON.stringify(config)}`);
 
   try {
     const feed = await getFeedBackfillTarget(pool, feedId);
@@ -106,12 +116,15 @@ async function run(): Promise<void> {
                     ? await backfillForeignAffairsFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
                     : isFlibustaFeed(feed)
                       ? await backfillFlibustaFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-                      : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
+                      : isNprFreshAirFeed(feed)
+                        ? await backfillNprFreshAirFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
+                        : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
 
     console.log(
       `Backfill complete for ${feed.title ?? feed.feedUrl}: source=${result.source} pages=${result.pageCount} discovered=${result.discoveredCount} inserted=${result.insertedCount}`
     );
   } finally {
+    console.error("Ending backfill process and closing database pool.");
     await pool.end();
   }
 }
@@ -660,6 +673,83 @@ async function backfillFlibustaFeed(
   };
 }
 
+async function backfillNprFreshAirFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const startUrl = resolveNprFreshAirBackfillStartUrl(feed);
+  const rootPage = await fetchNprFreshAirArchivePage(startUrl, feed.id, timeoutMs);
+  const monthUrls = rootPage.monthUrls.length > 0 ? rootPage.monthUrls : [startUrl];
+  const seenPages = new Set<string>();
+  const seenEpisodeIds = new Set<string>();
+  let discoveredCount = 0;
+  let insertedCount = 0;
+
+  console.log(`Backfill NPR Fresh Air archive months discovered: count=${monthUrls.length}`);
+
+  for (const monthUrl of monthUrls) {
+    let pageUrl: string | null = monthUrl;
+
+    while (pageUrl && seenPages.size < maxPages) {
+      if (seenPages.has(pageUrl)) {
+        break;
+      }
+
+      seenPages.add(pageUrl);
+      console.log(`Backfill crawling NPR Fresh Air pageUrl=${pageUrl}`);
+
+      const page: NprArchivePage = pageUrl === startUrl
+        ? rootPage
+        : await fetchNprFreshAirArchivePage(pageUrl, feed.id, timeoutMs);
+      console.log(
+        `Backfill NPR Fresh Air page parsed: items=${page.items.length} monthLinks=${page.monthUrls.length} next=${page.nextPageUrl ?? "none"}`
+      );
+
+      const items = page.items.filter((item: NormalizedItem) => {
+        const sourceId = readSourceId(item);
+
+        if (!sourceId) {
+          return true;
+        }
+
+        if (seenEpisodeIds.has(sourceId)) {
+          console.log(`Backfill NPR Fresh Air item skipped_duplicate_discovery | sourceId=${sourceId} | url=${item.url ?? "null"}`);
+          return false;
+        }
+
+        seenEpisodeIds.add(sourceId);
+        return true;
+      });
+
+      discoveredCount += items.length;
+
+      for (const result of await insertItemsWithResults(pool, feed.id, items)) {
+        console.log(formatInsertDebugLine(result.item, result.inserted));
+
+        if (result.inserted) {
+          insertedCount += 1;
+        }
+      }
+
+      pageUrl = page.nextPageUrl && sameNprArchiveMonth(monthUrl, page.nextPageUrl)
+        ? page.nextPageUrl
+        : null;
+
+      if (pageUrl) {
+        await sleep(defaultNprRequestDelayMs);
+      }
+    }
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount: seenPages.size,
+    source: "npr-fresh-air"
+  };
+}
+
 async function crawlRutrackerForum(
   pool: Pool,
   feedId: string,
@@ -831,6 +921,17 @@ function readSourceId(item: NormalizedItem): string | null {
     typeof flibustaData.bookId === "string"
   ) {
     return flibustaData.bookId;
+  }
+
+  const nprFreshAirData = item.rawExtensionData.nprFreshAir;
+
+  if (
+    nprFreshAirData &&
+    typeof nprFreshAirData === "object" &&
+    "episodeId" in nprFreshAirData &&
+    typeof nprFreshAirData.episodeId === "string"
+  ) {
+    return nprFreshAirData.episodeId;
   }
 
   return item.guid?.replace(/^rutracker-topic:/, "") ?? null;
@@ -1010,6 +1111,22 @@ function resolveFlibustaBackfillStartUrl(feed: FeedBackfillTarget): string {
   throw new Error(`Feed ${feed.id} does not point to a Flibusta genre feed.`);
 }
 
+function resolveNprFreshAirBackfillStartUrl(feed: FeedBackfillTarget): string {
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return resolveNprFreshAirArchiveUrl(candidate).toString();
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to NPR Fresh Air.`);
+}
+
 function isYouTubeFeed(feed: FeedBackfillTarget): boolean {
   return [feed.siteUrl, feed.feedUrl].some((candidate) => {
     if (!candidate) {
@@ -1127,6 +1244,16 @@ function isFlibustaFeed(feed: FeedBackfillTarget): boolean {
     }
 
     return isFlibustaGenreUrl(candidate);
+  });
+}
+
+function isNprFreshAirFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+
+    return isNprFreshAirUrl(candidate);
   });
 }
 
