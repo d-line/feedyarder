@@ -40,5 +40,5 @@ function decodeEntityEncodedHtml(html: string): string {
 }
 
 function containsEntityEncodedTag(html: string): boolean {
-  return /&lt;\/?[a-z][\s>/]/iu.test(html);
+  return /&lt;\/?[a-z][a-z0-9:-]*(?:\s|\/?&gt;|[/>])/iu.test(html);
 }

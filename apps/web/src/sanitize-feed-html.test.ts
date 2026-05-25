@@ -43,6 +43,17 @@ describe("sanitizeFeedHtml", () => {
     expect(sanitized).not.toContain("&lt;p&gt;");
   });
 
+  it("renders entity-encoded paragraph tags after a plain-text prefix", () => {
+    const sanitized = sanitizeFeedHtml(
+      `📺 ВИДЕОВЕРСИЯ — https://youtu.be/UtQVjNk22cw&lt;p&gt;💀 Наш блог — https://t.me/nezanesli&lt;/p&gt;&lt;p&gt;&lt;br /&gt;&lt;/p&gt;`
+    );
+
+    expect(sanitized).toContain("📺 ВИДЕОВЕРСИЯ");
+    expect(sanitized).toContain("<p>💀 Наш блог — https://t.me/nezanesli</p>");
+    expect(sanitized).toContain("<br>");
+    expect(sanitized).not.toContain("&lt;p&gt;");
+  });
+
   it("still sanitizes decoded entity markup", () => {
     const sanitized = sanitizeFeedHtml(
       `&lt;p onclick=&quot;alert(1)&quot;&gt;hello&lt;/p&gt;&lt;script&gt;alert(1)&lt;/script&gt;`
