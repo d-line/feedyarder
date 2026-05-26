@@ -34,6 +34,14 @@ import {
   sameNprArchiveMonth
 } from "./backfill/npr.js";
 import {
+  fetchPromodjGroupPage,
+  fetchPromodjItemPage,
+  fetchPromodjMusicSections,
+  isPromodjMaveBackfillFeed,
+  resolvePromodjMusicUrl,
+  type PromodjListedItem
+} from "./backfill/promodj.js";
+import {
   fetchLearnCategories,
   fetchLearnCategoryPage,
   fetchLearnGuideDetail,
@@ -75,6 +83,7 @@ const defaultForeignAffairsRequestDelayMinMs = 3_000;
 const defaultForeignAffairsRequestDelayMaxMs = 8_000;
 const defaultFlibustaRequestDelayMs = 500;
 const defaultNprRequestDelayMs = 500;
+const defaultPromodjRequestDelayMs = 500;
 const defaultSubstackRequestDelayMinMs = 5_000;
 const defaultSubstackRequestDelayMaxMs = 15_000;
 const maxPages = 10_000;
@@ -118,7 +127,9 @@ async function run(): Promise<void> {
                       ? await backfillFlibustaFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
                       : isNprFreshAirFeed(feed)
                         ? await backfillNprFreshAirFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-                        : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
+                        : isPromodjFeed(feed)
+                          ? await backfillPromodjFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
+                          : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
 
     console.log(
       `Backfill complete for ${feed.title ?? feed.feedUrl}: source=${result.source} pages=${result.pageCount} discovered=${result.discoveredCount} inserted=${result.insertedCount}`
@@ -750,6 +761,86 @@ async function backfillNprFreshAirFeed(
   };
 }
 
+async function backfillPromodjFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const sections = await fetchPromodjMusicSections(timeoutMs);
+  const seenPageUrls = new Set<string>();
+  const seenFileIds = new Set<string>();
+  let discoveredCount = 0;
+  let insertedCount = 0;
+
+  console.log(`Backfill PromoDJ sections discovered: count=${sections.length}`);
+
+  for (const section of sections) {
+    let pageUrl: string | null = section.url;
+
+    while (pageUrl && seenPageUrls.size < maxPages) {
+      if (seenPageUrls.has(pageUrl)) {
+        break;
+      }
+
+      seenPageUrls.add(pageUrl);
+      console.log(`Backfill crawling PromoDJ section=${section.title} pageUrl=${pageUrl}`);
+
+      const page = await fetchPromodjGroupPage(pageUrl, timeoutMs);
+      console.log(
+        `Backfill PromoDJ group page parsed: section=${section.title} page=${page.pageNumber} items=${page.items.length} next=${page.nextPageUrl ?? "none"}`
+      );
+
+      const listedItems: PromodjListedItem[] = [];
+
+      for (const listedItem of page.items) {
+        if (seenFileIds.has(listedItem.id)) {
+          console.log(`Backfill PromoDJ item skipped_duplicate_discovery | sourceId=${listedItem.id} | url=${listedItem.url}`);
+          continue;
+        }
+
+        seenFileIds.add(listedItem.id);
+        listedItems.push(listedItem);
+      }
+
+      discoveredCount += listedItems.length;
+
+      const items: NormalizedItem[] = [];
+
+      for (const listedItem of listedItems) {
+        console.log(`Backfill PromoDJ item detail fetching | sourceId=${listedItem.id} | url=${listedItem.url}`);
+        await sleep(defaultPromodjRequestDelayMs);
+
+        const parsed = await fetchPromodjItemPage(listedItem, feed.id, timeoutMs);
+        console.log(
+          `Backfill PromoDJ item normalized | sourceId=${listedItem.id} | publishedAt=${parsed.item.publishedAt ?? "null"} | duration=${parsed.source.durationSeconds ?? "null"} | title=${parsed.item.title ?? "null"} | url=${parsed.item.url ?? "null"}`
+        );
+        items.push(parsed.item);
+      }
+
+      for (const result of await insertItemsWithResults(pool, feed.id, items)) {
+        console.log(formatInsertDebugLine(result.item, result.inserted));
+
+        if (result.inserted) {
+          insertedCount += 1;
+        }
+      }
+
+      pageUrl = page.nextPageUrl;
+
+      if (pageUrl) {
+        await sleep(defaultPromodjRequestDelayMs);
+      }
+    }
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount: seenPageUrls.size,
+    source: "promodj"
+  };
+}
+
 async function crawlRutrackerForum(
   pool: Pool,
   feedId: string,
@@ -932,6 +1023,17 @@ function readSourceId(item: NormalizedItem): string | null {
     typeof nprFreshAirData.episodeId === "string"
   ) {
     return nprFreshAirData.episodeId;
+  }
+
+  const promodjData = item.rawExtensionData.promodj;
+
+  if (
+    promodjData &&
+    typeof promodjData === "object" &&
+    "fileId" in promodjData &&
+    typeof promodjData.fileId === "string"
+  ) {
+    return promodjData.fileId;
   }
 
   return item.guid?.replace(/^rutracker-topic:/, "") ?? null;
@@ -1254,6 +1356,24 @@ function isNprFreshAirFeed(feed: FeedBackfillTarget): boolean {
     }
 
     return isNprFreshAirUrl(candidate);
+  });
+}
+
+function isPromodjFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+
+    if (isPromodjMaveBackfillFeed(candidate)) {
+      return true;
+    }
+
+    try {
+      return new URL(candidate).toString() === resolvePromodjMusicUrl();
+    } catch {
+      return false;
+    }
   });
 }
 
