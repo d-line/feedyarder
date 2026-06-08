@@ -24,11 +24,22 @@ export interface FeedBackfillTarget {
   title: string | null;
 }
 
+export interface FolderBackfillTarget {
+  feeds: FeedBackfillTarget[];
+  id: string;
+  title: string;
+}
+
 interface FeedBackfillTargetRow {
   id: string;
   feed_url: string;
   site_url: string | null;
   title: string | null;
+}
+
+interface FolderBackfillTargetRow {
+  id: string;
+  title: string;
 }
 
 export interface InsertItemResult {
@@ -85,6 +96,62 @@ export async function getFeedBackfillTarget(
     return null;
   }
 
+  return {
+    feedUrl: row.feed_url,
+    id: row.id,
+    siteUrl: row.site_url,
+    title: row.title
+  };
+}
+
+export async function getFolderBackfillTarget(
+  pool: Pool,
+  folderReference: string
+): Promise<FolderBackfillTarget | null> {
+  const folderResult = await pool.query<FolderBackfillTargetRow>(
+    `
+      select id, title
+      from folders
+      where id::text = $1 or title = $1
+      order by id
+    `,
+    [folderReference]
+  );
+
+  if (folderResult.rows.length === 0) {
+    return null;
+  }
+
+  if (folderResult.rows.length > 1) {
+    throw new Error(
+      `Folder title "${folderReference}" is ambiguous. Use a folder id instead.`
+    );
+  }
+
+  const folder = folderResult.rows[0];
+
+  if (!folder) {
+    return null;
+  }
+
+  const feedResult = await pool.query<FeedBackfillTargetRow>(
+    `
+      select id, feed_url, site_url, title
+      from feeds
+      where folder_id = $1
+      order by created_at asc, id asc
+    `,
+    [folder.id]
+  );
+
+  return {
+    feeds: feedResult.rows.map(mapFeedBackfillTarget),
+    id: folder.id,
+    title: folder.title
+  };
+}
+
+function mapFeedBackfillTarget(row: FeedBackfillTargetRow): FeedBackfillTarget {
   return {
     feedUrl: row.feed_url,
     id: row.id,

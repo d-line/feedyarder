@@ -20,6 +20,7 @@
     "fast-xml-parser": "^4.5.3",
     "parse5": "^8.0.1",
     "pg": "^8.14.1",
+    "puppeteer-core": "^25.1.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {

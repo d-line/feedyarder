@@ -15,6 +15,8 @@ export interface RutrackerBackfillPage {
 const requestHeaders: HeadersInit = {
   "user-agent": "Feedyarder/0.1 (+https://localhost)"
 };
+const maxRequestAttempts = 3;
+const retryBaseDelayMs = 1_000;
 
 const russianMonths = new Map<string, number>([
   ["янв", 0],
@@ -31,21 +33,77 @@ const russianMonths = new Map<string, number>([
   ["дек", 11]
 ]);
 
+export function buildRutrackerForumUrl(forumId: string, start: number | null): string {
+  const forumUrl = new URL("https://rutracker.org/forum/viewforum.php");
+  forumUrl.searchParams.set("f", forumId);
+
+  if (start !== null) {
+    forumUrl.searchParams.set("start", String(start));
+  }
+
+  return forumUrl.toString();
+}
+
 export async function fetchRutrackerBackfillPage(
   url: string,
   feedId: string,
   timeoutMs: number
 ): Promise<RutrackerBackfillPage> {
-  const response = await fetch(url, {
-    headers: requestHeaders,
-    signal: AbortSignal.timeout(timeoutMs)
-  });
+  for (let attempt = 1; attempt <= maxRequestAttempts; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        headers: requestHeaders,
+        signal: AbortSignal.timeout(timeoutMs)
+      });
 
-  if (!response.ok) {
-    throw new Error(`RuTracker backfill request failed with HTTP ${response.status}.`);
+      if (response.ok) {
+        return parseRutrackerForumPage(await decodeResponseText(response), url, feedId);
+      }
+
+      const error = new Error(
+        `RuTracker backfill request failed with HTTP ${response.status}.`
+      );
+
+      if (!isRetryableStatus(response.status) || attempt === maxRequestAttempts) {
+        throw error;
+      }
+
+      await waitBeforeRetry(url, attempt, error.message);
+    } catch (error) {
+      if (attempt === maxRequestAttempts || isNonRetryableHttpError(error)) {
+        throw error;
+      }
+
+      await waitBeforeRetry(url, attempt, formatError(error));
+    }
   }
 
-  return parseRutrackerForumPage(await decodeResponseText(response), url, feedId);
+  throw new Error("RuTracker backfill request exhausted its retry attempts.");
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function isNonRetryableHttpError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const match = /^RuTracker backfill request failed with HTTP (\d+)\.$/.exec(error.message);
+  return match ? !isRetryableStatus(Number(match[1])) : false;
+}
+
+async function waitBeforeRetry(url: string, attempt: number, reason: string): Promise<void> {
+  const delayMs = retryBaseDelayMs * 2 ** (attempt - 1);
+  console.warn(
+    `RuTracker backfill request retrying: url=${url} attempt=${attempt + 1}/${maxRequestAttempts} delayMs=${delayMs} reason=${reason}`
+  );
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function parseRutrackerForumPage(

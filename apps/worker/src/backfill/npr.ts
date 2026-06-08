@@ -23,7 +23,10 @@ export interface NprArchivePage {
 
 const freshAirArchiveUrl = "https://www.npr.org/programs/fresh-air/archive";
 const requestHeaders: HeadersInit = {
-  "user-agent": "Feedyarder/0.1 (+https://localhost)"
+  accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "accept-language": "en-US,en;q=0.9",
+  "user-agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
 };
 
 export async function fetchNprFreshAirArchivePage(
@@ -31,16 +34,65 @@ export async function fetchNprFreshAirArchivePage(
   feedId: string,
   timeoutMs: number
 ): Promise<NprArchivePage> {
-  const response = await fetch(url, {
-    headers: requestHeaders,
-    signal: AbortSignal.timeout(timeoutMs)
-  });
+  const startedAt = Date.now();
+  let stage = "waiting_for_response_headers";
 
-  if (!response.ok) {
-    throw new Error(`NPR Fresh Air backfill request failed with HTTP ${response.status}.`);
+  console.log(
+    `NPR Fresh Air request started: url=${url} timeoutMs=${timeoutMs}`
+  );
+
+  try {
+    const response = await fetch(url, {
+      headers: requestHeaders,
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    const headersElapsedMs = Date.now() - startedAt;
+
+    console.log(
+      `NPR Fresh Air response headers received: url=${url} status=${response.status} contentLength=${response.headers.get("content-length") ?? "unknown"} contentType=${response.headers.get("content-type") ?? "unknown"} elapsedMs=${headersElapsedMs}`
+    );
+
+    if (!response.ok) {
+      throw new Error(`NPR Fresh Air backfill request failed with HTTP ${response.status}.`);
+    }
+
+    stage = "downloading_response_body";
+    const html = await response.text();
+    const bodyElapsedMs = Date.now() - startedAt;
+
+    console.log(
+      `NPR Fresh Air response body downloaded: url=${url} bytes=${Buffer.byteLength(html)} elapsedMs=${bodyElapsedMs}`
+    );
+
+    stage = "parsing_response_body";
+    const page = parseNprFreshAirArchivePage(html, url, feedId);
+
+    console.log(
+      `NPR Fresh Air response parsed: url=${url} items=${page.items.length} monthLinks=${page.monthUrls.length} next=${page.nextPageUrl ?? "none"} elapsedMs=${Date.now() - startedAt}`
+    );
+
+    return page;
+  } catch (error) {
+    const details = formatRequestError(error);
+
+    throw new Error(
+      `NPR Fresh Air request failed: stage=${stage} url=${url} timeoutMs=${timeoutMs} elapsedMs=${Date.now() - startedAt} error=${details}`,
+      { cause: error }
+    );
+  }
+}
+
+function formatRequestError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
   }
 
-  return parseNprFreshAirArchivePage(await response.text(), url, feedId);
+  const cause =
+    error.cause instanceof Error
+      ? ` cause=${error.cause.name}: ${error.cause.message}`
+      : "";
+
+  return `${error.name}: ${error.message}${cause}`;
 }
 
 export function parseNprFreshAirArchivePage(

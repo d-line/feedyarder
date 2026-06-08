@@ -207,3 +207,34 @@ Foreign Affairs backfill uses a random delay before each listing and article req
 ```bash
 FOREIGN_AFFAIRS_BACKFILL_DELAY_MIN_MS=8000 FOREIGN_AFFAIRS_BACKFILL_DELAY_MAX_MS=20000 npm run backfill -- <foreign-affairs-feed-id>
 ```
+
+Liquor.com feeds are backfilled from a browser-downloaded URL-set sitemap and a persistent Chrome session. Download `https://www.liquor.com/sitemap_1.xml` in a browser, then pass its local path:
+
+```bash
+npm run backfill -- <liquor-feed-id> --sitemap-file "$HOME/Downloads/sitemap_1.xml"
+```
+
+The file must be the URL-set sitemap containing article URLs, not the small `sitemap.xml` index.
+
+Liquor.com article and taxonomy pages are Cloudflare-protected. The most reliable workflow is to launch a separate Chrome instance yourself with remote debugging and a dedicated profile:
+
+```bash
+open -na "Google Chrome" --args \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/.feedyarder-liquor-chrome"
+```
+
+In that Chrome window, open `https://www.liquor.com`, complete any Cloudflare challenge, and leave the window running. Then attach the backfill to it:
+
+```bash
+LIQUOR_BROWSER_DEBUG_URL=http://127.0.0.1:9222 \
+npm run backfill -- <liquor-feed-id> --sitemap-file "$HOME/Downloads/sitemap_1.xml"
+```
+
+The backfill disconnects without closing the manually launched Chrome. Direct Puppeteer launch remains available when `LIQUOR_BROWSER_DEBUG_URL` is unset, using `LIQUOR_BROWSER_USER_DATA_DIR` and optional `LIQUOR_BROWSER_EXECUTABLE_PATH`, but Cloudflare may reject an automation-launched browser. Docker execution requires a reachable remote-debugging Chrome or a Chrome/Chromium binary in the image.
+
+Liquor.com backfill uses a random delay before each taxonomy and article browser navigation. Defaults are 1000-3000ms:
+
+```bash
+LIQUOR_BACKFILL_DELAY_MIN_MS=3000 LIQUOR_BACKFILL_DELAY_MAX_MS=8000 npm run backfill -- <liquor-feed-id>
+```

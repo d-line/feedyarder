@@ -6,6 +6,7 @@ coverage
 .env.local
 .turbo
 *.log
+.feedyarder
 
 apps/web/.vite
 apps/web/dist

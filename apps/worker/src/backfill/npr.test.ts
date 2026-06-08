@@ -1,10 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  fetchNprFreshAirArchivePage,
   parseNprFreshAirArchivePage,
   resolveNprFreshAirArchiveUrl,
   sameNprArchiveMonth
 } from "./npr.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("parseNprFreshAirArchivePage", () => {
   it("normalizes Fresh Air archive shows with segment metadata and month pagination", () => {
@@ -108,5 +114,92 @@ describe("sameNprArchiveMonth", () => {
         "https://www.npr.org/programs/fresh-air/archive?date=2025-11-29&eid=g-s1-1"
       )
     ).toBe(false);
+  });
+});
+
+describe("fetchNprFreshAirArchivePage", () => {
+  it("logs request stages and response details", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("<html><body></body></html>", {
+        headers: {
+          "content-length": "26",
+          "content-type": "text/html"
+        },
+        status: 200
+      })
+    );
+    vi.stubGlobal(
+      "fetch",
+      fetchMock
+    );
+
+    await expect(
+      fetchNprFreshAirArchivePage(
+        "https://www.npr.org/programs/fresh-air/archive",
+        "feed-id",
+        60_000
+      )
+    ).resolves.toMatchObject({ items: [] });
+
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("NPR Fresh Air request started:")
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("NPR Fresh Air response headers received:")
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("NPR Fresh Air response body downloaded:")
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("NPR Fresh Air response parsed:")
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://www.npr.org/programs/fresh-air/archive",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          accept: expect.stringContaining("text/html"),
+          "accept-language": "en-US,en;q=0.9",
+          "user-agent": expect.stringContaining("Mozilla/5.0")
+        })
+      })
+    );
+  });
+
+  it("adds URL, timeout, stage, and error type to request failures", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(
+        new DOMException("The operation was aborted due to timeout", "TimeoutError")
+      )
+    );
+
+    await expect(
+      fetchNprFreshAirArchivePage(
+        "https://www.npr.org/programs/fresh-air/archive",
+        "feed-id",
+        60_000
+      )
+    ).rejects.toThrow(
+      "stage=waiting_for_response_headers url=https://www.npr.org/programs/fresh-air/archive timeoutMs=60000"
+    );
+  });
+
+  it("identifies timeouts while downloading the response body", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const response = new Response("", { status: 200 });
+    vi.spyOn(response, "text").mockRejectedValue(
+      new DOMException("The operation was aborted due to timeout", "TimeoutError")
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    await expect(
+      fetchNprFreshAirArchivePage(
+        "https://www.npr.org/programs/fresh-air/archive",
+        "feed-id",
+        60_000
+      )
+    ).rejects.toThrow("stage=downloading_response_body");
   });
 });

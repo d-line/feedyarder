@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
 import { getConfig } from "./config.js";
 import { getPool } from "./db/pool.js";
 import {
@@ -21,6 +24,18 @@ import {
   isForeignAffairsUrl,
   resolveForeignAffairsRootUrl
 } from "./backfill/foreignAffairs.js";
+import {
+  fetchLiquorSitemap,
+  isLiquorUrl,
+  isPotentialLiquorArticleUrl,
+  liquorRootTaxonomies,
+  parseLiquorArticle,
+  parseLiquorSitemap,
+  parseLiquorTaxonomyPage,
+  resolveLiquorRootUrl,
+  type LiquorTaxonomy
+} from "./backfill/liquor.js";
+import { createLiquorBrowserSession } from "./backfill/liquorBrowser.js";
 import {
   fetchFlibustaBackfillPage,
   isFlibustaGenreUrl,
@@ -48,7 +63,10 @@ import {
   normalizeLearnGuide,
   resolveLearnRootUrl
 } from "./backfill/learn.js";
-import { fetchRutrackerBackfillPage } from "./backfill/rutracker.js";
+import {
+  buildRutrackerForumUrl,
+  fetchRutrackerBackfillPage
+} from "./backfill/rutracker.js";
 import {
   buildRedditListingJsonUrl,
   fetchRedditBackfillPage,
@@ -66,8 +84,10 @@ import {
   collectYouTubeBackfillItemBatches,
   resolveYouTubeBackfillUrls
 } from "./backfill/youtube.js";
+import { parseBackfillArguments } from "./backfill/args.js";
 import {
   getFeedBackfillTarget,
+  getFolderBackfillTarget,
   insertItemsWithResults,
   type FeedBackfillTarget
 } from "./repository.js";
@@ -81,6 +101,8 @@ const defaultRedditRequestDelayMinMs = 1_000;
 const defaultRedditRequestDelayMaxMs = 3_000;
 const defaultForeignAffairsRequestDelayMinMs = 3_000;
 const defaultForeignAffairsRequestDelayMaxMs = 8_000;
+const defaultLiquorRequestDelayMinMs = 1_000;
+const defaultLiquorRequestDelayMaxMs = 3_000;
 const defaultFlibustaRequestDelayMs = 500;
 const defaultNprRequestDelayMs = 500;
 const defaultPromodjRequestDelayMs = 500;
@@ -88,55 +110,152 @@ const defaultSubstackRequestDelayMinMs = 5_000;
 const defaultSubstackRequestDelayMaxMs = 15_000;
 const maxPages = 10_000;
 
+interface BackfillResult {
+  discoveredCount: number;
+  insertedCount: number;
+  pageCount: number;
+  source: string;
+}
+
 async function run(): Promise<void> {
-  const feedId = process.argv[2];
-
-  if (!feedId) {
-    throw new Error("Usage: npm run backfill -- <feed-id>");
-  }
-
+  const args = parseBackfillArguments(process.argv.slice(2));
   const config = getConfig();
   const pool = getPool(config.DATABASE_URL);
 
-  console.log(`Starting backfill for feed ${feedId} with config: ${JSON.stringify(config)}`);
-
   try {
-    const feed = await getFeedBackfillTarget(pool, feedId);
+    if (args.selection.kind === "feed") {
+      const feed = await getFeedBackfillTarget(pool, args.selection.feedId);
 
-    if (!feed) {
-      throw new Error(`Feed ${feedId} was not found.`);
+      if (!feed) {
+        throw new Error(`Feed ${args.selection.feedId} was not found.`);
+      }
+
+      console.log(
+        `Starting backfill for feed ${feed.id} with config: ${formatConfigForLog(config)}`
+      );
+      const result = await backfillFeed(
+        pool,
+        feed,
+        config.FETCH_TOTAL_TIMEOUT_MS,
+        args.rutrackerStart,
+        args.liquorSitemapFile
+      );
+      logBackfillComplete(feed, result);
+      return;
     }
 
-    const result = isYouTubeFeed(feed)
-      ? await backfillYouTubeFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-      : isAdafruitFeed(feed)
-        ? await backfillAdafruitFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-        : isLearnFeed(feed)
-          ? await backfillLearnFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-          : isDouFeed(feed)
-            ? await backfillDouFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-            : isGitHubBlogFeed(feed)
-              ? await backfillGitHubBlogFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-              : isSubstackFeed(feed)
-                ? await backfillSubstackFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-                : isRedditFeed(feed)
-                  ? await backfillRedditFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-                  : isForeignAffairsFeed(feed)
-                    ? await backfillForeignAffairsFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-                    : isFlibustaFeed(feed)
-                      ? await backfillFlibustaFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-                      : isNprFreshAirFeed(feed)
-                        ? await backfillNprFreshAirFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-                        : isPromodjFeed(feed)
-                          ? await backfillPromodjFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS)
-                          : await backfillRutrackerFeed(pool, feed, config.FETCH_TOTAL_TIMEOUT_MS);
+    const folder = await getFolderBackfillTarget(pool, args.selection.folderReference);
+
+    if (!folder) {
+      throw new Error(`Folder ${args.selection.folderReference} was not found.`);
+    }
 
     console.log(
-      `Backfill complete for ${feed.title ?? feed.feedUrl}: source=${result.source} pages=${result.pageCount} discovered=${result.discoveredCount} inserted=${result.insertedCount}`
+      `Starting backfill for folder ${folder.title} (${folder.id}): feeds=${folder.feeds.length} config=${formatConfigForLog(config)}`
     );
+    const failures: Array<{ error: unknown; feed: FeedBackfillTarget }> = [];
+
+    for (const feed of folder.feeds) {
+      console.log(`Starting folder feed backfill: ${feed.title ?? feed.feedUrl} (${feed.id})`);
+
+      try {
+        const result = await backfillFeed(
+          pool,
+          feed,
+          config.FETCH_TOTAL_TIMEOUT_MS,
+          args.rutrackerStart,
+          args.liquorSitemapFile
+        );
+        logBackfillComplete(feed, result);
+      } catch (error) {
+        failures.push({ error, feed });
+        console.error(
+          `Backfill failed for ${feed.title ?? feed.feedUrl} (${feed.id}): ${formatError(error)}`
+        );
+      }
+    }
+
+    console.log(
+      `Folder backfill complete for ${folder.title}: feeds=${folder.feeds.length} succeeded=${folder.feeds.length - failures.length} failed=${failures.length}`
+    );
+
+    if (failures.length > 0) {
+      throw new Error(`Folder backfill failed for ${failures.length} feed(s).`);
+    }
   } finally {
     console.error("Ending backfill process and closing database pool.");
     await pool.end();
+  }
+}
+
+async function backfillFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number,
+  rutrackerStart: number | null,
+  liquorSitemapFile: string | null
+): Promise<BackfillResult> {
+  return isYouTubeFeed(feed)
+    ? backfillYouTubeFeed(pool, feed, timeoutMs)
+    : isAdafruitFeed(feed)
+      ? backfillAdafruitFeed(pool, feed, timeoutMs)
+      : isLearnFeed(feed)
+        ? backfillLearnFeed(pool, feed, timeoutMs)
+        : isDouFeed(feed)
+          ? backfillDouFeed(pool, feed, timeoutMs)
+          : isGitHubBlogFeed(feed)
+            ? backfillGitHubBlogFeed(pool, feed, timeoutMs)
+            : isSubstackFeed(feed)
+              ? backfillSubstackFeed(pool, feed, timeoutMs)
+              : isRedditFeed(feed)
+                ? backfillRedditFeed(pool, feed, timeoutMs)
+                : isForeignAffairsFeed(feed)
+                  ? backfillForeignAffairsFeed(pool, feed, timeoutMs)
+                  : isLiquorFeed(feed)
+                    ? backfillLiquorFeed(pool, feed, timeoutMs, liquorSitemapFile)
+                    : isFlibustaFeed(feed)
+                      ? backfillFlibustaFeed(pool, feed, timeoutMs)
+                      : isNprFreshAirFeed(feed)
+                        ? backfillNprFreshAirFeed(pool, feed, timeoutMs)
+                        : isPromodjFeed(feed)
+                          ? backfillPromodjFeed(pool, feed, timeoutMs)
+                          : backfillRutrackerFeed(pool, feed, timeoutMs, rutrackerStart);
+}
+
+function logBackfillComplete(feed: FeedBackfillTarget, result: BackfillResult): void {
+  console.log(
+    `Backfill complete for ${feed.title ?? feed.feedUrl}: source=${result.source} pages=${result.pageCount} discovered=${result.discoveredCount} inserted=${result.insertedCount}`
+  );
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function formatConfigForLog(config: ReturnType<typeof getConfig>): string {
+  return JSON.stringify({
+    ...config,
+    DATABASE_URL: redactDatabaseUrl(config.DATABASE_URL),
+    TELEGRAM_BOT_TOKEN: config.TELEGRAM_BOT_TOKEN ? "[redacted]" : undefined,
+    TELEGRAM_CHAT_ID: config.TELEGRAM_CHAT_ID ? "[redacted]" : undefined
+  });
+}
+
+function redactDatabaseUrl(value: string): string {
+  try {
+    const url = new URL(value);
+
+    if (url.username) {
+      url.username = "[redacted]";
+    }
+
+    if (url.password) {
+      url.password = "[redacted]";
+    }
+
+    return url.toString();
+  } catch {
+    return "[redacted]";
   }
 }
 
@@ -189,9 +308,10 @@ async function backfillYouTubeFeed(
 async function backfillRutrackerFeed(
   pool: Pool,
   feed: FeedBackfillTarget,
-  timeoutMs: number
+  timeoutMs: number,
+  start: number | null
 ): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
-  const startUrl = resolveRutrackerBackfillStartUrl(feed);
+  const startUrl = resolveRutrackerBackfillStartUrl(feed, start);
   const result = await crawlRutrackerForum(pool, feed.id, startUrl, timeoutMs);
 
   return {
@@ -636,6 +756,201 @@ async function backfillForeignAffairsFeed(
   };
 }
 
+async function backfillLiquorFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number,
+  sitemapFile: string | null
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const rootUrl = resolveLiquorBackfillStartUrl(feed);
+  const requestDelay = resolveLiquorBackfillDelay();
+  const sitemapQueue = sitemapFile ? [] : [new URL("/sitemap.xml", rootUrl).toString()];
+  const seenSitemapUrls = new Set<string>();
+  const sitemapEntries = new Map<
+    string,
+    { lastModified: string | null; sitemapUrl: string }
+  >();
+  let pageCount = 0;
+
+  if (sitemapFile) {
+    const resolvedPath = path.resolve(sitemapFile);
+    let xml: string;
+
+    try {
+      xml = await readFile(resolvedPath, "utf8");
+    } catch (error) {
+      throw new Error(
+        `Liquor.com sitemap file could not be read: ${resolvedPath}: ${formatError(error)}`
+      );
+    }
+
+    const sitemap = parseLiquorSitemap(xml, resolvedPath);
+
+    if (sitemap.sitemapUrls.length > 0 && sitemap.urlEntries.length === 0) {
+      throw new Error(
+        `Liquor.com sitemap file is an index, not a URL set: ${resolvedPath}. Download the referenced sitemap_1.xml file and pass that path instead.`
+      );
+    }
+
+    for (const entry of sitemap.urlEntries) {
+      sitemapEntries.set(entry.url, {
+        lastModified: entry.lastModified,
+        sitemapUrl: resolvedPath
+      });
+    }
+
+    pageCount += 1;
+    console.log(
+      `Backfill Liquor.com local sitemap parsed: path=${resolvedPath} urls=${sitemap.urlEntries.length}`
+    );
+  }
+
+  while (sitemapQueue.length > 0 && seenSitemapUrls.size < maxPages) {
+    const sitemapUrl = sitemapQueue.shift();
+
+    if (!sitemapUrl || seenSitemapUrls.has(sitemapUrl)) {
+      continue;
+    }
+
+    seenSitemapUrls.add(sitemapUrl);
+    console.log(`Backfill crawling Liquor.com sitemap=${sitemapUrl}`);
+    await sleepRandom(requestDelay);
+    const sitemap = await fetchLiquorSitemap(sitemapUrl, timeoutMs);
+    pageCount += 1;
+
+    for (const childUrl of sitemap.sitemapUrls) {
+      if (!seenSitemapUrls.has(childUrl)) {
+        sitemapQueue.push(childUrl);
+      }
+    }
+
+    for (const entry of sitemap.urlEntries) {
+      sitemapEntries.set(entry.url, {
+        lastModified: entry.lastModified,
+        sitemapUrl
+      });
+    }
+
+    console.log(
+      `Backfill Liquor.com sitemap parsed: childSitemaps=${sitemap.sitemapUrls.length} urls=${sitemap.urlEntries.length}`
+    );
+  }
+
+  const browserSession = await createLiquorBrowserSession();
+
+  try {
+    const taxonomyQueue: Array<{ path: string[]; taxonomy: LiquorTaxonomy }> =
+      liquorRootTaxonomies.map((taxonomy) => ({
+        path: [taxonomy.title],
+        taxonomy
+      }));
+    const seenTaxonomyUrls = new Set<string>();
+    const taxonomyPathsByArticle = new Map<string, string[][]>();
+
+    while (taxonomyQueue.length > 0 && seenTaxonomyUrls.size < maxPages) {
+      const next = taxonomyQueue.shift();
+
+      if (!next || seenTaxonomyUrls.has(next.taxonomy.url)) {
+        continue;
+      }
+
+      seenTaxonomyUrls.add(next.taxonomy.url);
+      console.log(
+        `Backfill crawling Liquor.com taxonomy=${next.path.join(" > ")} url=${next.taxonomy.url}`
+      );
+      await sleepRandom(requestDelay);
+      const page = parseLiquorTaxonomyPage(
+        await browserSession.fetchHtml(next.taxonomy.url, timeoutMs),
+        next.taxonomy.url
+      );
+      pageCount += 1;
+
+      for (const article of page.articles) {
+        const paths = taxonomyPathsByArticle.get(article.url) ?? [];
+        paths.push(next.path);
+        taxonomyPathsByArticle.set(article.url, paths);
+      }
+
+      for (const child of page.childTaxonomies) {
+        if (!seenTaxonomyUrls.has(child.url)) {
+          taxonomyQueue.push({
+            path: [...next.path, child.title],
+            taxonomy: child
+          });
+        }
+      }
+
+      console.log(
+        `Backfill Liquor.com taxonomy parsed: title=${page.title ?? next.taxonomy.title} articles=${page.articles.length} children=${page.childTaxonomies.length}`
+      );
+    }
+
+    const articleEntries = Array.from(sitemapEntries.entries()).filter(([url]) =>
+      isPotentialLiquorArticleUrl(url, seenTaxonomyUrls)
+    );
+    let discoveredCount = 0;
+    let insertedCount = 0;
+    let pendingItems: NormalizedItem[] = [];
+
+    const flushItems = async (): Promise<void> => {
+      if (pendingItems.length === 0) {
+        return;
+      }
+
+      for (const result of await insertItemsWithResults(pool, feed.id, pendingItems)) {
+        console.log(formatInsertDebugLine(result.item, result.inserted));
+
+        if (result.inserted) {
+          insertedCount += 1;
+        }
+      }
+
+      pendingItems = [];
+    };
+
+    for (const [articleUrl, sitemapSource] of articleEntries) {
+      if (pageCount >= maxPages) {
+        break;
+      }
+
+      console.log(`Backfill Liquor.com article detail fetching | url=${articleUrl}`);
+      await sleepRandom(requestDelay);
+      const html = await browserSession.fetchHtml(articleUrl, timeoutMs);
+      const item = html
+        ? parseLiquorArticle(html, articleUrl, feed.id, {
+            sitemapLastModified: sitemapSource.lastModified,
+            sitemapUrl: sitemapSource.sitemapUrl,
+            taxonomyPaths: taxonomyPathsByArticle.get(articleUrl) ?? []
+          })
+        : null;
+      pageCount += 1;
+
+      if (!item) {
+        console.log(`Backfill Liquor.com article skipped_not_article | url=${articleUrl}`);
+        continue;
+      }
+
+      discoveredCount += 1;
+      pendingItems.push(item);
+
+      if (pendingItems.length >= 25) {
+        await flushItems();
+      }
+    }
+
+    await flushItems();
+
+    return {
+      discoveredCount,
+      insertedCount,
+      pageCount,
+      source: "liquor"
+    };
+  } finally {
+    await browserSession.close();
+  }
+}
+
 async function backfillFlibustaFeed(
   pool: Pool,
   feed: FeedBackfillTarget,
@@ -690,6 +1005,9 @@ async function backfillNprFreshAirFeed(
   timeoutMs: number
 ): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
   const startUrl = resolveNprFreshAirBackfillStartUrl(feed);
+  console.log(
+    `Backfill NPR Fresh Air starting: feedId=${feed.id} feedUrl=${feed.feedUrl} archiveUrl=${startUrl} timeoutMs=${timeoutMs}`
+  );
   const rootPage = await fetchNprFreshAirArchivePage(startUrl, feed.id, timeoutMs);
   const monthUrls = rootPage.monthUrls.length > 0 ? rootPage.monthUrls : [startUrl];
   const seenPages = new Set<string>();
@@ -1003,6 +1321,17 @@ function readSourceId(item: NormalizedItem): string | null {
     return foreignAffairsData.nodeId;
   }
 
+  const liquorData = item.rawExtensionData.liquor;
+
+  if (
+    liquorData &&
+    typeof liquorData === "object" &&
+    "documentId" in liquorData &&
+    typeof liquorData.documentId === "string"
+  ) {
+    return liquorData.documentId;
+  }
+
   const flibustaData = item.rawExtensionData.flibusta;
 
   if (
@@ -1061,7 +1390,10 @@ function resolveNextForumPageUrl(
   return currentUrl.toString();
 }
 
-function resolveRutrackerBackfillStartUrl(feed: FeedBackfillTarget): string {
+function resolveRutrackerBackfillStartUrl(
+  feed: FeedBackfillTarget,
+  start: number | null
+): string {
   for (const candidate of [feed.siteUrl, feed.feedUrl]) {
     if (!candidate) {
       continue;
@@ -1074,10 +1406,7 @@ function resolveRutrackerBackfillStartUrl(feed: FeedBackfillTarget): string {
       continue;
     }
 
-    const forumUrl = new URL("https://rutracker.org/forum/viewforum.php");
-    forumUrl.searchParams.set("f", forumId);
-
-    return forumUrl.toString();
+    return buildRutrackerForumUrl(forumId, start);
   }
 
   throw new Error(
@@ -1195,6 +1524,22 @@ function resolveForeignAffairsBackfillStartUrl(feed: FeedBackfillTarget): string
   }
 
   throw new Error(`Feed ${feed.id} does not point to Foreign Affairs.`);
+}
+
+function resolveLiquorBackfillStartUrl(feed: FeedBackfillTarget): string {
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return resolveLiquorRootUrl(candidate).toString();
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to Liquor.com.`);
 }
 
 function resolveFlibustaBackfillStartUrl(feed: FeedBackfillTarget): string {
@@ -1339,6 +1684,16 @@ function isForeignAffairsFeed(feed: FeedBackfillTarget): boolean {
   });
 }
 
+function isLiquorFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+
+    return isLiquorUrl(candidate);
+  });
+}
+
 function isFlibustaFeed(feed: FeedBackfillTarget): boolean {
   return [feed.siteUrl, feed.feedUrl].some((candidate) => {
     if (!candidate) {
@@ -1477,6 +1832,25 @@ function resolveForeignAffairsBackfillDelay(): { maxMs: number; minMs: number } 
   if (maxMs < minMs) {
     throw new Error(
       `FOREIGN_AFFAIRS_BACKFILL_DELAY_MAX_MS must be greater than or equal to FOREIGN_AFFAIRS_BACKFILL_DELAY_MIN_MS. Got min=${minMs} max=${maxMs}.`
+    );
+  }
+
+  return { maxMs, minMs };
+}
+
+function resolveLiquorBackfillDelay(): { maxMs: number; minMs: number } {
+  const minMs = resolvePositiveIntegerEnv(
+    "LIQUOR_BACKFILL_DELAY_MIN_MS",
+    defaultLiquorRequestDelayMinMs
+  );
+  const maxMs = resolvePositiveIntegerEnv(
+    "LIQUOR_BACKFILL_DELAY_MAX_MS",
+    defaultLiquorRequestDelayMaxMs
+  );
+
+  if (maxMs < minMs) {
+    throw new Error(
+      `LIQUOR_BACKFILL_DELAY_MAX_MS must be greater than or equal to LIQUOR_BACKFILL_DELAY_MIN_MS. Got min=${minMs} max=${maxMs}.`
     );
   }
 

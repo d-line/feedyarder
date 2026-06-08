@@ -1,6 +1,30 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { parseRutrackerForumPage } from "./rutracker.js";
+import {
+  buildRutrackerForumUrl,
+  fetchRutrackerBackfillPage,
+  parseRutrackerForumPage
+} from "./rutracker.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+describe("buildRutrackerForumUrl", () => {
+  it("includes an explicit pagination start offset", () => {
+    expect(buildRutrackerForumUrl("1702", 150)).toBe(
+      "https://rutracker.org/forum/viewforum.php?f=1702&start=150"
+    );
+  });
+
+  it("omits the start parameter when no offset was requested", () => {
+    expect(buildRutrackerForumUrl("1702", null)).toBe(
+      "https://rutracker.org/forum/viewforum.php?f=1702"
+    );
+  });
+});
 
 describe("parseRutrackerForumPage", () => {
   it("extracts forum topics and pagination metadata", () => {
@@ -50,5 +74,80 @@ describe("parseRutrackerForumPage", () => {
     });
     expect(page.pageSize).toBe(50);
     expect(page.maxStart).toBe(22300);
+  });
+});
+
+describe("fetchRutrackerBackfillPage", () => {
+  it("retries transient HTTP failures with exponential delays", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("", { status: 503 }))
+      .mockResolvedValueOnce(new Response("", { status: 429 }))
+      .mockResolvedValueOnce(new Response("<html></html>", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const request = fetchRutrackerBackfillPage(
+      "https://rutracker.org/forum/viewforum.php?f=1702",
+      "feed-id",
+      5_000
+    );
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await expect(request).resolves.toMatchObject({ items: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries network errors and returns the later successful response", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(new Response("<html></html>", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const request = fetchRutrackerBackfillPage(
+      "https://rutracker.org/forum/viewforum.php?f=1702",
+      "feed-id",
+      5_000
+    );
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(request).resolves.toMatchObject({ items: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry non-transient HTTP failures", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchRutrackerBackfillPage(
+        "https://rutracker.org/forum/viewforum.php?f=1702",
+        "feed-id",
+        5_000
+      )
+    ).rejects.toThrow("RuTracker backfill request failed with HTTP 404.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws after three transient failures", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const request = fetchRutrackerBackfillPage(
+      "https://rutracker.org/forum/viewforum.php?f=1702",
+      "feed-id",
+      5_000
+    );
+    const rejection = expect(request).rejects.toThrow(
+      "RuTracker backfill request failed with HTTP 503."
+    );
+
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    await rejection;
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
