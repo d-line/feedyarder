@@ -25,5 +25,10 @@
     "test:integration": "npm run test:integration -w @feedyarder/api && npm run test:integration -w @feedyarder/worker",
     "test:all": "npm run test && npm run test:integration",
     "typecheck": "npm run typecheck --workspaces"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "globals": "^17.6.0",
+    "typescript-eslint": "^8.61.0"
   }
 }

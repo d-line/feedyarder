@@ -25,8 +25,6 @@ const navItems = [
   { label: "admin", to: "/admin" }
 ];
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001";
-
 export function App() {
   const [state, setState] = useState<AppBootstrapState>({
     errorMessage: null,
@@ -96,20 +94,16 @@ export function App() {
     }));
   }
 
-  const statusMode = state.user
-    ? "authenticated"
-    : state.setupCompleted
-      ? "login"
-      : "bootstrap";
-
   return (
     <div className="terminal-shell">
-      <aside className="chrome-panel">
-        <div className="brand-block">
-          <p className="brand-name">feedyarder</p>
-          <p className="brand-meta">single-user rss operator console</p>
-        </div>
-
+      <header className="top-bar">
+        <NavLink
+          aria-label="Feedyarder home"
+          className="brand-mark"
+          to={state.user ? "/reader" : "/setup"}
+        >
+          FY
+        </NavLink>
         <nav className="nav-list" aria-label="Primary">
           {navItems.map((item) => (
             <NavLink
@@ -125,41 +119,14 @@ export function App() {
           ))}
         </nav>
 
-        <section className="status-block">
-          <p className="status-title">session</p>
-          <dl className="status-list">
-            <div>
-              <dt>mode</dt>
-              <dd>{statusMode}</dd>
-            </div>
-            <div>
-              <dt>user</dt>
-              <dd>{state.user?.username ?? "anonymous"}</dd>
-            </div>
-            <div>
-              <dt>api</dt>
-              <dd>{apiBaseUrl}</dd>
-            </div>
-          </dl>
-
-          {state.user ? (
-            <button className="logout-button" onClick={() => void handleLogout()} type="button">
-              logout
-            </button>
-          ) : null}
-        </section>
-      </aside>
+        {state.user ? (
+          <button className="top-bar-signout" onClick={() => void handleLogout()} type="button">
+            sign out
+          </button>
+        ) : null}
+      </header>
 
       <main className="screen-panel">
-        <header className="screen-header">
-          <p className="screen-header-line">
-            {state.isLoading ? "[loading session state]" : "[session state loaded]"}
-          </p>
-          <p className="screen-header-line">
-            routes: <span>/setup</span> <span>/reader</span> <span>/admin</span>
-          </p>
-        </header>
-
         <Routes>
           <Route
             path="/"
