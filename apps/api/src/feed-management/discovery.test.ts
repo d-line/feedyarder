@@ -58,6 +58,40 @@ describe("feed discovery", () => {
     });
   });
 
+  it("discovers feeds on pages larger than two MiB", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      responseWithUrl(
+        `
+          <html>
+            <head>
+              <script>${"x".repeat(2 * 1024 * 1024)}</script>
+              <link
+                rel="alternate"
+                type="application/rss+xml"
+                title="RSS"
+                href="https://www.youtube.com/feeds/videos.xml?channel_id=channel-1"
+              >
+            </head>
+          </html>
+        `,
+        "https://www.youtube.com/@example"
+      )
+    );
+
+    await expect(
+      discoverFeeds("https://www.youtube.com/@example", fetchMock)
+    ).resolves.toEqual({
+      feeds: [
+        {
+          feedUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=channel-1",
+          title: "RSS",
+          type: "application/rss+xml"
+        }
+      ],
+      siteUrl: "https://www.youtube.com/@example"
+    });
+  });
+
   it("rejects non-http URLs before fetching", async () => {
     const fetchMock = vi.fn<typeof fetch>();
 
@@ -100,7 +134,7 @@ describe("feed discovery", () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       new Response("", {
         headers: {
-          "content-length": String(2 * 1024 * 1024 + 1)
+          "content-length": String(5 * 1024 * 1024 + 1)
         }
       })
     );

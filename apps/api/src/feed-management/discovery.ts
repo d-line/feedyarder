@@ -1,7 +1,7 @@
 import { parse, type DefaultTreeAdapterTypes } from "parse5";
 
 const DISCOVERY_TIMEOUT_MS = 15_000;
-const MAX_DISCOVERY_DOCUMENT_BYTES = 2 * 1024 * 1024;
+const MAX_DISCOVERY_DOCUMENT_BYTES = 5 * 1024 * 1024;
 const FEED_CONTENT_TYPES = new Set([
   "application/atom+xml",
   "application/feed+json",
