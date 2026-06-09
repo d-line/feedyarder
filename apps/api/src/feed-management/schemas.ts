@@ -21,6 +21,10 @@ export const createFeedRequestSchema = z.object({
   title: z.string().trim().max(256).nullable().optional()
 });
 
+export const discoverFeedsRequestSchema = z.object({
+  url: z.string().url()
+});
+
 export const updateFeedRequestSchema = z
   .object({
     feedUrl: z.string().url().optional(),

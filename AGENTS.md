@@ -76,6 +76,7 @@ If the project direction changes, this file must be updated to reflect the new a
   - edit folder
   - delete folder
   - add feed
+  - discover RSS, Atom, or JSON Feed links advertised by a webpage and select one to populate the add-feed form
   - edit feed
   - delete feed
   - assign folder

@@ -1,6 +1,7 @@
 import {
   errorResponseSchema,
   fetchEventListResponseSchema,
+  feedDiscoveryResponseSchema,
   feedListResponseSchema,
   feedResponseSchema,
   folderListResponseSchema,
@@ -12,6 +13,7 @@ import {
   userResponseSchema,
   type ErrorResponse,
   type Feed,
+  type FeedDiscoveryResult,
   type FetchEvent,
   type Folder,
   type Item,
@@ -155,6 +157,14 @@ export async function deleteFolder(folderId: string): Promise<void> {
 export async function listFeeds(): Promise<Feed[]> {
   return apiRequest("/feeds", {
     schema: feedListResponseSchema
+  });
+}
+
+export async function discoverFeeds(url: string): Promise<FeedDiscoveryResult> {
+  return apiRequest("/feeds/discover", {
+    body: JSON.stringify({ url }),
+    method: "POST",
+    schema: feedDiscoveryResponseSchema
   });
 }
 

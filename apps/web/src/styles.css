@@ -583,6 +583,38 @@ button:disabled {
   font-size: 0.85rem;
 }
 
+.feed-discovery-actions {
+  margin-bottom: 1rem;
+}
+
+.feed-discovery-results {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.feed-discovery-option {
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+  text-align: left;
+  text-transform: none;
+}
+
+.feed-discovery-option span:nth-child(2),
+.feed-discovery-option span:nth-child(3) {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-discovery-option-selected {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .folder-impact-note {
   margin-bottom: 1rem;
   color: var(--muted);

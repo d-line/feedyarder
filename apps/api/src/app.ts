@@ -15,6 +15,7 @@ import { hashPassword, verifyPassword } from "./auth/passwords.js";
 import { sessionRequestSchema, setupRequestSchema } from "./auth/schemas.js";
 import type { AppConfig } from "./config.js";
 import { getPool } from "./db/pool.js";
+import { discoverFeeds, FeedDiscoveryError } from "./feed-management/discovery.js";
 import {
   createFeed,
   createFolder,
@@ -30,6 +31,7 @@ import {
 import {
   createFeedRequestSchema,
   createFolderRequestSchema,
+  discoverFeedsRequestSchema,
   idPathParamsSchema as feedManagementIdPathParamsSchema,
   listFetchEventsQuerySchema,
   updateFolderRequestSchema,
@@ -326,6 +328,23 @@ export function createApp(config: AppConfig) {
 
       return response.json(await listFeeds(pool));
     } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/feeds/discover", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      const payload = discoverFeedsRequestSchema.parse(request.body);
+      return response.json(await discoverFeeds(payload.url));
+    } catch (error) {
+      if (error instanceof FeedDiscoveryError) {
+        return sendError(response, error.status, error.code, error.message);
+      }
+
       next(error);
     }
   });

@@ -4,6 +4,15 @@
 
 import { z } from "zod";
 
+type FeedDiscoveryResponse = {
+  siteUrl: string;
+  feeds: Array<DiscoveredFeed>;
+};
+type DiscoveredFeed = {
+  feedUrl: string;
+  title: string | null;
+  type: string;
+};
 type ItemResponse = {
   id: string;
   feedId: string;
@@ -108,6 +117,17 @@ const CreateFeedRequest = z
     folderId: z.union([z.string(), z.null()]).optional(),
   })
   .strict();
+const DiscoverFeedsRequest = z.object({ url: z.string().url() }).strict();
+const DiscoveredFeed: z.ZodType<DiscoveredFeed> = z
+  .object({
+    feedUrl: z.string().url(),
+    title: z.union([z.string(), z.null()]),
+    type: z.string(),
+  })
+  .strict();
+const FeedDiscoveryResponse: z.ZodType<FeedDiscoveryResponse> = z
+  .object({ siteUrl: z.string().url(), feeds: z.array(DiscoveredFeed) })
+  .strict();
 const UpdateFeedRequest = z
   .object({
     feedUrl: z.string().url(),
@@ -191,6 +211,9 @@ export const schemas = {
   CreateFolderRequest,
   FeedResponse,
   CreateFeedRequest,
+  DiscoverFeedsRequest,
+  DiscoveredFeed,
+  FeedDiscoveryResponse,
   UpdateFeedRequest,
   FetchEventResponse,
   ImportOpmlRequest,

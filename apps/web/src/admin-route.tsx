@@ -1,7 +1,9 @@
 import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
 import {
+  type DiscoveredFeed,
   type FetchEvent,
   type Feed,
+  type FeedDiscoveryResult,
   type Folder,
   type OpmlImportResponse
 } from "@feedyarder/contracts";
@@ -10,6 +12,7 @@ import {
   createFolder,
   deleteFeed,
   deleteFolder,
+  discoverFeeds,
   exportOpml,
   getApiErrorMessage,
   importOpml,
@@ -35,6 +38,8 @@ export function AdminRoute() {
   const [feedUrl, setFeedUrl] = useState("");
   const [feedTitle, setFeedTitle] = useState("");
   const [siteUrl, setSiteUrl] = useState("");
+  const [discoveryUrl, setDiscoveryUrl] = useState("");
+  const [discoveryResult, setDiscoveryResult] = useState<FeedDiscoveryResult | null>(null);
   const [folderId, setFolderId] = useState("");
   const [selectedFeedId, setSelectedFeedId] = useState("");
   const [editFeedUrl, setEditFeedUrl] = useState("");
@@ -44,6 +49,7 @@ export function AdminRoute() {
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [isSubmittingFolder, setIsSubmittingFolder] = useState(false);
   const [isSubmittingFeed, setIsSubmittingFeed] = useState(false);
+  const [isDiscoveringFeeds, setIsDiscoveringFeeds] = useState(false);
   const [isSavingFolder, setIsSavingFolder] = useState(false);
   const [isDeletingFolder, setIsDeletingFolder] = useState(false);
   const [isSavingFeed, setIsSavingFeed] = useState(false);
@@ -171,12 +177,34 @@ export function AdminRoute() {
       setFeedUrl("");
       setFeedTitle("");
       setSiteUrl("");
+      setDiscoveryUrl("");
+      setDiscoveryResult(null);
       setFolderId("");
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     } finally {
       setIsSubmittingFeed(false);
     }
+  }
+
+  async function handleDiscoverFeeds(): Promise<void> {
+    setIsDiscoveringFeeds(true);
+    setErrorMessage(null);
+    setDiscoveryResult(null);
+
+    try {
+      setDiscoveryResult(await discoverFeeds(discoveryUrl));
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setIsDiscoveringFeeds(false);
+    }
+  }
+
+  function selectDiscoveredFeed(feed: DiscoveredFeed): void {
+    setFeedUrl(feed.feedUrl);
+    setFeedTitle(feed.title ?? "");
+    setSiteUrl(discoveryResult?.siteUrl ?? discoveryUrl);
   }
 
   async function handleUpdateFolder(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -488,6 +516,52 @@ export function AdminRoute() {
 
         <form className="terminal-form" onSubmit={(event) => void handleCreateFeed(event)}>
           <p className="status-title">new feed</p>
+          <label className="form-row">
+            <span>webpage url</span>
+            <input
+              onChange={(event) => {
+                setDiscoveryUrl(event.target.value);
+                setDiscoveryResult(null);
+              }}
+              placeholder="https://example.com"
+              type="url"
+              value={discoveryUrl}
+            />
+          </label>
+          <div className="form-actions feed-discovery-actions">
+            <button
+              disabled={isDiscoveringFeeds || discoveryUrl.trim().length === 0}
+              onClick={() => void handleDiscoverFeeds()}
+              type="button"
+            >
+              {isDiscoveringFeeds ? "discovering..." : "discover feeds"}
+            </button>
+            <span className="hint-text">POST /feeds/discover</span>
+          </div>
+          {discoveryResult ? (
+            <div className="feed-discovery-results">
+              {discoveryResult.feeds.length === 0 ? (
+                <p className="section-copy">No advertised feeds found on this page.</p>
+              ) : (
+                discoveryResult.feeds.map((feed) => (
+                  <button
+                    className={
+                      feed.feedUrl === feedUrl
+                        ? "feed-discovery-option feed-discovery-option-selected"
+                        : "feed-discovery-option"
+                    }
+                    key={feed.feedUrl}
+                    onClick={() => selectDiscoveredFeed(feed)}
+                    type="button"
+                  >
+                    <span>{feed.title ?? "(untitled feed)"}</span>
+                    <span>{feed.type}</span>
+                    <span>{feed.feedUrl}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
           <label className="form-row">
             <span>feed url</span>
             <input
