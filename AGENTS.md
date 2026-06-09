@@ -32,6 +32,10 @@ If the project direction changes, this file must be updated to reflect the new a
 ## Reader UI Behavior
 
 - The UI should visually resemble a terminal/TUI application rather than a conventional dashboard.
+- Use a single-column application shell with no sidebar.
+- The application shell should use the full viewport width up to roughly 1280px, then remain centered at roughly 1280px on wider screens.
+- The top bar should contain a square `FY` logo, linked primary routes, and sign-out when authenticated.
+- Do not show a session status block or session-loaded message in the application chrome.
 - Collapsed story rows show feed name and story title.
 - Expanded story view shows as much extracted feed data as available.
 - Expanded view should include full title, human-readable publication date when available, author when available, and actions for read/unread and star.

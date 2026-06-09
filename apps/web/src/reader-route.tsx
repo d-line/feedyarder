@@ -335,15 +335,6 @@ export function ReaderRoute() {
     <section className="screen-content">
       <header className="section-header">
         <p className="section-kicker">$ reader</p>
-        <h1>single-pane story stream</h1>
-        <p className="section-copy">
-          Real item data now comes from the public API with cursor pagination,
-          filters, and state toggles.
-        </p>
-        <p className="section-copy">
-          shortcuts: `j/k` move, `enter` open, `m` read, `s` star, `/` search,
-          `u` unread, `a` all
-        </p>
       </header>
 
       <div className="toolbar toolbar-stacked">

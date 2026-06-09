@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 
 import type { Pool, PoolClient } from "pg";
 
-const MIGRATIONS_TABLE = "schema_migrations";
 const UP_MIGRATION_FILE_PATTERN = /^(\d{4})_(.+)\.up\.sql$/;
 
 export interface Migration {
