@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
 import {
   createFolder,
+  discoverFeeds,
   exportOpml,
   fetchCurrentUser,
   getApiErrorMessage,
@@ -80,6 +81,34 @@ describe("api-client", () => {
     expect(initArg?.method).toBe("POST");
     expect(headers.get("Content-Type")).toBe("application/json");
     expect(initArg?.body).toBe(JSON.stringify({ position: 1, title: "Folder A" }));
+  });
+
+  it("discovers feeds through the authenticated API boundary", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        feeds: [
+          {
+            feedUrl: "https://example.com/feed.xml",
+            title: "Example feed",
+            type: "application/rss+xml"
+          }
+        ],
+        siteUrl: "https://example.com/"
+      })
+    );
+
+    await expect(discoverFeeds("https://example.com")).resolves.toMatchObject({
+      feeds: [
+        {
+          feedUrl: "https://example.com/feed.xml"
+        }
+      ]
+    });
+
+    const [urlArg, initArg] = fetchMock.mock.calls[0] ?? [];
+    expect(new URL(String(urlArg)).pathname).toBe("/feeds/discover");
+    expect(initArg?.method).toBe("POST");
+    expect(initArg?.body).toBe(JSON.stringify({ url: "https://example.com" }));
   });
 
   it("returns null for not-authenticated current-user response", async () => {

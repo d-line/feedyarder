@@ -18,6 +18,10 @@ export const feedResponseSchema = schemas.FeedResponse;
 export const feedListResponseSchema = z.array(feedResponseSchema);
 export type Feed = z.infer<typeof feedResponseSchema>;
 
+export const feedDiscoveryResponseSchema = schemas.FeedDiscoveryResponse;
+export type FeedDiscoveryResult = z.infer<typeof feedDiscoveryResponseSchema>;
+export type DiscoveredFeed = FeedDiscoveryResult["feeds"][number];
+
 export const fetchEventResponseSchema = schemas.FetchEventResponse;
 export const fetchEventListResponseSchema = z.array(fetchEventResponseSchema);
 export type FetchEvent = z.infer<typeof fetchEventResponseSchema>;

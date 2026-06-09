@@ -276,6 +276,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /feeds/discover:
+    post:
+      operationId: discoverFeeds
+      summary: Discover feeds advertised by a webpage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiscoverFeedsRequest"
+      responses:
+        "200":
+          description: Feed discovery result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedDiscoveryResponse"
+        "400":
+          description: Invalid or unsupported URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Webpage cannot be inspected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Webpage fetch failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /feeds/{id}:
     patch:
       operationId: updateFeed
@@ -671,6 +712,38 @@ components:
         folderId:
           type: [string, "null"]
           format: uuid
+    DiscoverFeedsRequest:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+    DiscoveredFeed:
+      type: object
+      additionalProperties: false
+      required: [feedUrl, title, type]
+      properties:
+        feedUrl:
+          type: string
+          format: uri
+        title:
+          type: [string, "null"]
+        type:
+          type: string
+    FeedDiscoveryResponse:
+      type: object
+      additionalProperties: false
+      required: [siteUrl, feeds]
+      properties:
+        siteUrl:
+          type: string
+          format: uri
+        feeds:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoveredFeed"
     UpdateFeedRequest:
       type: object
       additionalProperties: false
