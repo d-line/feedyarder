@@ -49,6 +49,14 @@ import {
   sameNprArchiveMonth
 } from "./backfill/npr.js";
 import {
+  buildNprIndicatorPartialUrl,
+  fetchNprIndicatorArchivePage,
+  fetchNprIndicatorFeedItems,
+  isNprIndicatorUrl,
+  mergeNprIndicatorRssItems,
+  resolveNprIndicatorPodcastUrl
+} from "./backfill/nprIndicator.js";
+import {
   fetchPromodjGroupPage,
   fetchPromodjItemPage,
   fetchPromodjMusicSections,
@@ -217,9 +225,11 @@ async function backfillFeed(
                       ? backfillFlibustaFeed(pool, feed, timeoutMs)
                       : isNprFreshAirFeed(feed)
                         ? backfillNprFreshAirFeed(pool, feed, timeoutMs)
-                        : isPromodjFeed(feed)
-                          ? backfillPromodjFeed(pool, feed, timeoutMs)
-                          : backfillRutrackerFeed(pool, feed, timeoutMs, rutrackerStart);
+                        : isNprIndicatorFeed(feed)
+                          ? backfillNprIndicatorFeed(pool, feed, timeoutMs)
+                          : isPromodjFeed(feed)
+                            ? backfillPromodjFeed(pool, feed, timeoutMs)
+                            : backfillRutrackerFeed(pool, feed, timeoutMs, rutrackerStart);
 }
 
 function logBackfillComplete(feed: FeedBackfillTarget, result: BackfillResult): void {
@@ -1079,6 +1089,75 @@ async function backfillNprFreshAirFeed(
   };
 }
 
+async function backfillNprIndicatorFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const podcastUrl = resolveNprIndicatorBackfillStartUrl(feed);
+  const rssItems = await fetchNprIndicatorFeedItems(feed.id, timeoutMs);
+  const seenStoryIds = new Set<string>();
+  let pageUrl: string | null = buildNprIndicatorPartialUrl(1);
+  let discoveredCount = 0;
+  let insertedCount = 0;
+  let pageCount = 0;
+
+  console.log(
+    `Backfill NPR Indicator starting: feedId=${feed.id} feedUrl=${feed.feedUrl} podcastUrl=${podcastUrl} rssItems=${rssItems.length} timeoutMs=${timeoutMs}`
+  );
+
+  while (pageUrl && pageCount < maxPages) {
+    console.log(`Backfill crawling NPR Indicator pageUrl=${pageUrl}`);
+    const page = await fetchNprIndicatorArchivePage(pageUrl, feed.id, timeoutMs);
+    pageCount += 1;
+
+    const uniqueItems = page.items.filter((item) => {
+      const sourceId = readSourceId(item);
+
+      if (!sourceId) {
+        return true;
+      }
+
+      if (seenStoryIds.has(sourceId)) {
+        console.log(
+          `Backfill NPR Indicator item skipped_duplicate_discovery | sourceId=${sourceId} | url=${item.url ?? "null"}`
+        );
+        return false;
+      }
+
+      seenStoryIds.add(sourceId);
+      return true;
+    });
+    const items = mergeNprIndicatorRssItems(uniqueItems, rssItems);
+    discoveredCount += items.length;
+
+    console.log(
+      `Backfill NPR Indicator page parsed: episodes=${page.episodeCount} items=${items.length} next=${page.nextPageUrl ?? "none"}`
+    );
+
+    for (const result of await insertItemsWithResults(pool, feed.id, items)) {
+      console.log(formatInsertDebugLine(result.item, result.inserted));
+
+      if (result.inserted) {
+        insertedCount += 1;
+      }
+    }
+
+    pageUrl = page.nextPageUrl;
+
+    if (pageUrl) {
+      await sleep(defaultNprRequestDelayMs);
+    }
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount,
+    source: "npr-indicator"
+  };
+}
+
 async function backfillPromodjFeed(
   pool: Pool,
   feed: FeedBackfillTarget,
@@ -1354,6 +1433,17 @@ function readSourceId(item: NormalizedItem): string | null {
     return nprFreshAirData.episodeId;
   }
 
+  const nprIndicatorData = item.rawExtensionData.nprIndicator;
+
+  if (
+    nprIndicatorData &&
+    typeof nprIndicatorData === "object" &&
+    "storyId" in nprIndicatorData &&
+    typeof nprIndicatorData.storyId === "string"
+  ) {
+    return nprIndicatorData.storyId;
+  }
+
   const promodjData = item.rawExtensionData.promodj;
 
   if (
@@ -1574,6 +1664,22 @@ function resolveNprFreshAirBackfillStartUrl(feed: FeedBackfillTarget): string {
   throw new Error(`Feed ${feed.id} does not point to NPR Fresh Air.`);
 }
 
+function resolveNprIndicatorBackfillStartUrl(feed: FeedBackfillTarget): string {
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return resolveNprIndicatorPodcastUrl(candidate).toString();
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to NPR's The Indicator.`);
+}
+
 function isYouTubeFeed(feed: FeedBackfillTarget): boolean {
   return [feed.siteUrl, feed.feedUrl].some((candidate) => {
     if (!candidate) {
@@ -1711,6 +1817,16 @@ function isNprFreshAirFeed(feed: FeedBackfillTarget): boolean {
     }
 
     return isNprFreshAirUrl(candidate);
+  });
+}
+
+function isNprIndicatorFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+
+    return isNprIndicatorUrl(candidate);
   });
 }
 
