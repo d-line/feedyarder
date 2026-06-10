@@ -139,7 +139,7 @@ export async function getFolderBackfillTarget(
       select id, feed_url, site_url, title
       from feeds
       where folder_id = $1
-      order by created_at asc, id asc
+      order by created_at desc, id asc
     `,
     [folder.id]
   );
