@@ -15,7 +15,7 @@ export interface RutrackerBackfillPage {
 const requestHeaders: HeadersInit = {
   "user-agent": "Feedyarder/0.1 (+https://localhost)"
 };
-const maxRequestAttempts = 3;
+const maxRequestAttempts = 10;
 const retryBaseDelayMs = 1_000;
 
 const russianMonths = new Map<string, number>([
