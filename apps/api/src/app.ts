@@ -34,6 +34,7 @@ import {
   discoverFeedsRequestSchema,
   idPathParamsSchema as feedManagementIdPathParamsSchema,
   listFetchEventsQuerySchema,
+  listFeedsQuerySchema,
   updateFolderRequestSchema,
   updateFeedRequestSchema
 } from "./feed-management/schemas.js";
@@ -326,7 +327,12 @@ export function createApp(config: AppConfig) {
         return;
       }
 
-      return response.json(await listFeeds(pool));
+      const query = listFeedsQuerySchema.parse(request.query);
+      return response.json(
+        await listFeeds(pool, {
+          includeStatistics: query.includeStatistics
+        })
+      );
     } catch (error) {
       next(error);
     }

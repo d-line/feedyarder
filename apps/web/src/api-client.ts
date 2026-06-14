@@ -154,8 +154,16 @@ export async function deleteFolder(folderId: string): Promise<void> {
   });
 }
 
-export async function listFeeds(): Promise<Feed[]> {
-  return apiRequest("/feeds", {
+export async function listFeeds(input: { includeStatistics?: boolean } = {}): Promise<Feed[]> {
+  const params = new URLSearchParams();
+
+  if (input.includeStatistics) {
+    params.set("includeStatistics", "true");
+  }
+
+  const query = params.size > 0 ? `?${params.toString()}` : "";
+
+  return apiRequest(`/feeds${query}`, {
     schema: feedListResponseSchema
   });
 }

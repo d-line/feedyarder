@@ -29,6 +29,8 @@ export interface FeedRecord {
   last_error_at: Date | null;
   last_error_category: string | null;
   last_error_message: string | null;
+  item_count?: number;
+  read_item_count?: number;
   created_at: Date;
 }
 
@@ -47,6 +49,8 @@ export interface FeedResponse {
   lastErrorAt: string | null;
   lastErrorCategory: string | null;
   lastErrorMessage: string | null;
+  itemCount?: number;
+  readItemCount?: number;
   createdAt: string;
 }
 
@@ -101,6 +105,8 @@ function mapFeed(row: FeedRecord): FeedResponse {
     lastErrorCategory: row.last_error_category,
     lastErrorMessage: row.last_error_message,
     lastSuccessAt: row.last_success_at?.toISOString() ?? null,
+    ...(row.item_count === undefined ? {} : { itemCount: row.item_count }),
+    ...(row.read_item_count === undefined ? {} : { readItemCount: row.read_item_count }),
     siteUrl: row.site_url,
     status: row.status,
     title: row.title
@@ -200,27 +206,49 @@ export async function deleteFolder(pool: Pool, folderId: string): Promise<boolea
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function listFeeds(pool: Pool): Promise<FeedResponse[]> {
+export async function listFeeds(
+  pool: Pool,
+  input: { includeStatistics: boolean }
+): Promise<FeedResponse[]> {
+  const statisticsColumns = input.includeStatistics
+    ? `,
+        coalesce(item_counts.item_count, 0) as item_count,
+        coalesce(item_counts.read_item_count, 0) as read_item_count`
+    : "";
+  const statisticsJoin = input.includeStatistics
+    ? `
+      left join (
+        select
+          feed_id,
+          count(*)::integer as item_count,
+          count(*) filter (where is_read)::integer as read_item_count
+        from items
+        group by feed_id
+      ) item_counts on item_counts.feed_id = feeds.id`
+    : "";
+
   const result = await pool.query<FeedRecord>(
     `
       select
-        id,
-        folder_id,
-        title,
-        site_url,
-        feed_url,
-        favicon_url,
-        status,
-        is_paused,
-        fetch_interval_minutes,
-        consecutive_error_count,
-        last_success_at,
-        last_error_at,
-        last_error_category,
-        last_error_message,
-        created_at
+        feeds.id,
+        feeds.folder_id,
+        feeds.title,
+        feeds.site_url,
+        feeds.feed_url,
+        feeds.favicon_url,
+        feeds.status,
+        feeds.is_paused,
+        feeds.fetch_interval_minutes,
+        feeds.consecutive_error_count,
+        feeds.last_success_at,
+        feeds.last_error_at,
+        feeds.last_error_category,
+        feeds.last_error_message,
+        feeds.created_at
+        ${statisticsColumns}
       from feeds
-      order by created_at asc, id asc
+      ${statisticsJoin}
+      order by feeds.created_at asc, feeds.id asc
     `
   );
 

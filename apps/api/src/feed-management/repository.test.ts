@@ -1,9 +1,61 @@
 import type { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
 
-import { listFetchEvents, retryFeedNow, updateFeed } from "./repository.js";
+import { listFeeds, listFetchEvents, retryFeedNow, updateFeed } from "./repository.js";
 
 describe("feed-management repository", () => {
+  it("lists feeds with item and read counts", async () => {
+    const queryMock = vi.fn().mockResolvedValue({
+      rows: [
+        {
+          consecutive_error_count: 0,
+          created_at: new Date("2026-04-25T00:00:00.000Z"),
+          favicon_url: null,
+          feed_url: "https://example.com/feed.xml",
+          fetch_interval_minutes: 60,
+          folder_id: null,
+          id: "00000000-0000-0000-0000-000000000100",
+          is_paused: false,
+          item_count: 8,
+          last_error_at: null,
+          last_error_category: null,
+          last_error_message: null,
+          last_success_at: null,
+          read_item_count: 6,
+          site_url: null,
+          status: "active",
+          title: "Example"
+        }
+      ]
+    });
+    const pool = {
+      query: queryMock
+    } as unknown as Pool;
+
+    const feeds = await listFeeds(pool, { includeStatistics: true });
+    const [sql] = queryMock.mock.calls[0] as [string];
+
+    expect(sql).toContain("count(*)::integer as item_count");
+    expect(sql).toContain("count(*) filter (where is_read)::integer as read_item_count");
+    expect(feeds[0]).toMatchObject({
+      itemCount: 8,
+      readItemCount: 6
+    });
+  });
+
+  it("lists feeds without the item aggregation by default for callers that do not need it", async () => {
+    const queryMock = vi.fn().mockResolvedValue({ rows: [] });
+    const pool = {
+      query: queryMock
+    } as unknown as Pool;
+
+    await listFeeds(pool, { includeStatistics: false });
+
+    const [sql] = queryMock.mock.calls[0] as [string];
+    expect(sql).not.toContain("from items");
+    expect(sql).not.toContain("item_count");
+  });
+
   it("lists fetch events with feed filter and maps response fields", async () => {
     const queryMock = vi.fn().mockResolvedValue({
       rows: [

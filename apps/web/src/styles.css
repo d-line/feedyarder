@@ -498,6 +498,52 @@ button:disabled {
   white-space: nowrap;
 }
 
+.feed-list-table {
+  overflow-x: auto;
+}
+
+.feed-list-table .table-head,
+.feed-list-table .table-row {
+  display: grid;
+  grid-template-columns: 28rem 12rem 6rem 6rem 8rem 6rem 19rem;
+  align-items: start;
+  min-width: 91rem;
+}
+
+.feed-list-table .table-head > span,
+.feed-list-table .table-row > span {
+  min-width: 0;
+  flex: initial;
+}
+
+.feed-list-table .table-row-empty {
+  grid-template-columns: 1fr;
+  min-width: 0;
+}
+
+.feed-list-table .table-row-empty > span {
+  grid-column: 1 / -1;
+}
+
+.feed-list-table .table-row > span:first-child strong,
+.feed-list-table .table-subline {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-inline-editor {
+  min-width: 91rem;
+  padding: 1rem;
+  border-bottom: 1px solid rgba(39, 55, 46, 0.65);
+  background: rgba(110, 231, 162, 0.035);
+}
+
+.feed-inline-editor .admin-grid {
+  margin-bottom: 0;
+}
+
 .status-pill {
   display: inline-flex;
   max-width: fit-content;

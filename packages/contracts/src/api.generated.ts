@@ -106,6 +106,8 @@ const FeedResponse = z
     lastErrorAt: z.union([z.string(), z.null()]),
     lastErrorCategory: z.union([z.string(), z.null()]),
     lastErrorMessage: z.union([z.string(), z.null()]),
+    itemCount: z.number().int().gte(0).optional(),
+    readItemCount: z.number().int().gte(0).optional(),
     createdAt: z.string().datetime({ offset: true }),
   })
   .strict();

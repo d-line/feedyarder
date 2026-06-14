@@ -25,6 +25,13 @@ export const discoverFeedsRequestSchema = z.object({
   url: z.string().url()
 });
 
+export const listFeedsQuerySchema = z.object({
+  includeStatistics: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((value) => value === "true")
+});
+
 export const updateFeedRequestSchema = z
   .object({
     feedUrl: z.string().url().optional(),

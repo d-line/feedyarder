@@ -10,6 +10,7 @@ import {
   setupUser
 } from "./api-client.js";
 import { AdminRoute } from "./admin-route.js";
+import { FeedsRoute } from "./feeds-route.js";
 import { ReaderRoute } from "./reader-route.js";
 
 interface AppBootstrapState {
@@ -22,6 +23,7 @@ interface AppBootstrapState {
 const navItems = [
   { label: "setup", to: "/setup" },
   { label: "reader", to: "/reader" },
+  { label: "feeds", to: "/feeds" },
   { label: "admin", to: "/admin" }
 ];
 
@@ -153,6 +155,16 @@ export function App() {
                 isLoading={state.isLoading}
                 user={state.user}
                 view={<ReaderRoute />}
+              />
+            }
+          />
+          <Route
+            path="/feeds"
+            element={
+              <ProtectedRoute
+                isLoading={state.isLoading}
+                user={state.user}
+                view={<FeedsRoute />}
               />
             }
           />

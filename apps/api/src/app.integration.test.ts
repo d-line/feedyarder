@@ -263,6 +263,17 @@ describe("API integration", () => {
     expect(updatedItem.data.isRead).toBe(true);
     expect(updatedItem.data.isStarred).toBe(true);
 
+    const feedsWithStatistics = await request<
+      Array<{ id: string; itemCount: number; readItemCount: number }>
+    >("/feeds?includeStatistics=true");
+    const feedWithStatistics = feedsWithStatistics.data.find(
+      (entry) => entry.id === feed.data.id
+    );
+    expect(feedWithStatistics).toMatchObject({
+      itemCount: 1,
+      readItemCount: 1
+    });
+
     const unreadAfterUpdate = await request<{ items: Array<{ id: string }> }>(
       "/items?read=false&limit=20"
     );

@@ -227,6 +227,14 @@ paths:
     get:
       operationId: listFeeds
       summary: List feeds
+      parameters:
+        - in: query
+          name: includeStatistics
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Include stored item and read-item counts for each feed.
       responses:
         "200":
           description: Feed list
@@ -817,6 +825,14 @@ components:
           type: [string, "null"]
         lastErrorMessage:
           type: [string, "null"]
+        itemCount:
+          type: integer
+          minimum: 0
+          description: Total stored items for the feed when aggregate statistics are requested.
+        readItemCount:
+          type: integer
+          minimum: 0
+          description: Read stored items for the feed when aggregate statistics are requested.
         createdAt:
           type: string
           format: date-time

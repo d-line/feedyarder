@@ -35,6 +35,7 @@ If the project direction changes, this file must be updated to reflect the new a
 - Use a single-column application shell with no sidebar.
 - The application shell should use the full viewport width up to roughly 1280px, then remain centered at roughly 1280px on wider screens.
 - The top bar should contain a square `FY` logo, linked primary routes, and sign-out when authenticated.
+- The top bar should include a dedicated `feeds` route for feed creation and management.
 - Do not show a session status block or session-loaded message in the application chrome.
 - Collapsed story rows show feed name and story title.
 - Expanded story view shows as much extracted feed data as available.
@@ -223,7 +224,11 @@ If the project direction changes, this file must be updated to reflect the new a
 - Database schema changes should use versioned migrations tracked in a `schema_migrations` table, with explicit `.up.sql` / `.down.sql` files and `up/down/status` commands.
 - Use cursor/keyset pagination, not offset pagination, for story listing.
 - Build the internal product API first; Fever compatibility may be added later as a compatibility layer if needed.
-- Maintain a separate admin page rather than overloading the reader UI with management concerns.
+- Maintain separate management pages rather than overloading the reader UI:
+  - `/feeds` owns feed creation, feed health, pause/retry controls, and feed editing.
+  - `/admin` owns folder management, OPML import/export, and recent fetch history.
+- The feeds page should list each feed's story count and read percentage.
+- Feed editing should expand directly below the selected feed row rather than appearing above the list.
 
 ## Working Rule
 
