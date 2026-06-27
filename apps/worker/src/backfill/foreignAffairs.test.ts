@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { parseFeedDocument } from "../fetch/normalize.js";
 import {
+  isForeignAffairsInterviewArchiveUrl,
   parseForeignAffairsArticle,
+  parseForeignAffairsPodcastArchivePage,
   parseForeignAffairsTaxonomies,
   parseForeignAffairsTaxonomyPage,
+  resolveForeignAffairsInterviewArchiveUrl,
   resolveForeignAffairsRootUrl
 } from "./foreignAffairs.js";
 
@@ -146,6 +149,39 @@ describe("parseForeignAffairsTaxonomyPage", () => {
   });
 });
 
+describe("parseForeignAffairsPodcastArchivePage", () => {
+  it("extracts podcast episode URLs and follows query pagination", () => {
+    const result = parseForeignAffairsPodcastArchivePage(
+      `
+      <html>
+        <head><title>The Foreign Affairs Interview | Foreign Affairs</title></head>
+        <body>
+          <a href="/podcasts/foreign-affairs-interview">Podcast landing page</a>
+          <a href="/podcasts/iran-war-coming-end">Has the Iran War Come to an End?</a>
+          <a href="/podcasts/cuba-next">What Comes Next for Cuba?</a>
+          <a href="/authors/suzanne-maloney">Author</a>
+          <a href="/topics/geopolitics">Topic</a>
+          <nav>
+            <a href="?page=0">1</a>
+            <a href="?page=1">2</a>
+          </nav>
+        </body>
+      </html>`,
+      "https://www.foreignaffairs.com/podcasts/foreign-affairs-interview"
+    );
+
+    expect(result).toEqual({
+      articleUrls: [
+        "https://www.foreignaffairs.com/podcasts/iran-war-coming-end",
+        "https://www.foreignaffairs.com/podcasts/cuba-next"
+      ],
+      nextPageUrl: "https://www.foreignaffairs.com/podcasts/foreign-affairs-interview?page=1",
+      pageNumber: 0,
+      title: "The Foreign Affairs Interview"
+    });
+  });
+});
+
 describe("parseForeignAffairsArticle", () => {
   it("normalizes article metadata with RSS-compatible Drupal node IDs", () => {
     const item = parseForeignAffairsArticle(
@@ -251,6 +287,33 @@ describe("resolveForeignAffairsRootUrl", () => {
   it("resolves feed URLs to the site root", () => {
     expect(resolveForeignAffairsRootUrl("https://www.foreignaffairs.com/rss.xml").toString()).toBe(
       "https://www.foreignaffairs.com/"
+    );
+  });
+});
+
+describe("resolveForeignAffairsInterviewArchiveUrl", () => {
+  it("accepts the podcast archive URL", () => {
+    expect(
+      resolveForeignAffairsInterviewArchiveUrl(
+        "https://www.foreignaffairs.com/podcasts/foreign-affairs-interview?page=2"
+      ).toString()
+    ).toBe("https://www.foreignaffairs.com/podcasts/foreign-affairs-interview");
+  });
+
+  it("maps Foreign Affairs RSS to the podcast archive when the caller has matched the feed title", () => {
+    expect(resolveForeignAffairsInterviewArchiveUrl("https://www.foreignaffairs.com/rss.xml").toString()).toBe(
+      "https://www.foreignaffairs.com/podcasts/foreign-affairs-interview"
+    );
+  });
+});
+
+describe("isForeignAffairsInterviewArchiveUrl", () => {
+  it("matches only the interview archive landing page", () => {
+    expect(isForeignAffairsInterviewArchiveUrl("https://www.foreignaffairs.com/podcasts/foreign-affairs-interview")).toBe(
+      true
+    );
+    expect(isForeignAffairsInterviewArchiveUrl("https://www.foreignaffairs.com/podcasts/iran-war-coming-end")).toBe(
+      false
     );
   });
 });

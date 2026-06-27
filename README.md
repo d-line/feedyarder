@@ -60,6 +60,8 @@ Migration framework now uses versioned `up/down` scripts in `packages/db/migrati
 - `0001_initial.down.sql`
 - `0002_feed_title_search_index.up.sql`
 - `0002_feed_title_search_index.down.sql`
+- `0003_feed_last_backfilled_at.up.sql`
+- `0003_feed_last_backfilled_at.down.sql`
 
 Run commands from repo root:
 
@@ -140,6 +142,13 @@ YouTube items are inserted as yt-dlp streams them. The default insert batch size
 YT_DLP_BATCH_SIZE=250 npm run backfill -- <feed-id>
 ```
 
+Completed backfills are marked on the feed. A later backfill attempt skips that feed with a warning unless you force a rerun:
+
+```bash
+npm run backfill -- <feed-id> --force
+npm run backfill -- --folder <folder-id-or-title> --force
+```
+
 The same backfill target also supports Adafruit Blog feeds. It crawls the blog root and numbered archive pages:
 
 ```bash
@@ -202,10 +211,28 @@ Foreign Affairs feeds are backfilled by crawling the public topics and tags inde
 npm run backfill -- <foreign-affairs-feed-id>
 ```
 
+The Foreign Affairs Interview is handled separately from the topics/tags crawl. Feeds titled `The Foreign Affairs Interview` or pointing at `/podcasts/foreign-affairs-interview` crawl that podcast archive, follow its `?page=` pagination, and fetch each unique episode page:
+
+```bash
+npm run backfill -- <foreign-affairs-interview-feed-id>
+```
+
 Foreign Affairs backfill uses a random delay before each listing and article request. Defaults are 3000-8000ms:
 
 ```bash
 FOREIGN_AFFAIRS_BACKFILL_DELAY_MIN_MS=8000 FOREIGN_AFFAIRS_BACKFILL_DELAY_MAX_MS=20000 npm run backfill -- <foreign-affairs-feed-id>
+```
+
+FLOSS Weekly is backfilled from Libsyn archive pages. The worker crawls `https://flossweekly.libsyn.com/` and `/page/<n>`, reads Libsyn's embedded `window.PAGE_DATA`, and reconciles current RSS items by `libsyn:item-id` before inserting older archive-only episodes:
+
+```bash
+npm run backfill -- <floss-weekly-feed-id>
+```
+
+Twit.tv show feeds are backfilled generically from Twit episode archives. The worker accepts Twit archive URLs such as `https://twit.tv/episodes?filter[shows]=1639`, Twit show pages, or `feeds.twit.tv` RSS feeds, follows archive `?page=` pagination, fetches each unique episode page, and reconciles visible RSS items by canonical episode URL:
+
+```bash
+npm run backfill -- <twit-feed-id>
 ```
 
 Liquor.com feeds are backfilled from a browser-downloaded URL-set sitemap and a persistent Chrome session. Download `https://www.liquor.com/sitemap_1.xml` in a browser, then pass its local path:

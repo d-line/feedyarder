@@ -85,6 +85,7 @@ describe("feed-management repository", () => {
           folder_id: null,
           id: "00000000-0000-0000-0000-000000000301",
           is_paused: true,
+          last_backfilled_at: new Date("2026-06-26T12:00:00.000Z"),
           last_error_at: null,
           last_error_category: null,
           last_error_message: null,
@@ -124,6 +125,7 @@ describe("feed-management repository", () => {
     ]);
     expect(result).not.toBeNull();
     expect(result?.isPaused).toBe(true);
+    expect(result?.lastBackfilledAt).toBe("2026-06-26T12:00:00.000Z");
     expect(result?.folderId).toBeNull();
     expect(result?.siteUrl).toBeNull();
     expect(result?.title).toBeNull();

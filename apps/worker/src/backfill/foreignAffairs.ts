@@ -20,6 +20,13 @@ export interface ForeignAffairsTaxonomyPage {
   taxonomyTitle: string | null;
 }
 
+export interface ForeignAffairsPodcastArchivePage {
+  articleUrls: string[];
+  nextPageUrl: string | null;
+  pageNumber: number;
+  title: string | null;
+}
+
 export interface ForeignAffairsArticleSource {
   sourcePageUrl: string;
   taxonomy: ForeignAffairsTaxonomy;
@@ -117,6 +124,31 @@ export async function fetchForeignAffairsTaxonomyPage(
   }
 
   return parseForeignAffairsTaxonomyPage(await response.text(), url);
+}
+
+export async function fetchForeignAffairsPodcastArchivePage(
+  url: string,
+  timeoutMs: number
+): Promise<ForeignAffairsPodcastArchivePage> {
+  const response = await fetch(url, {
+    headers: requestHeaders,
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+
+  if (response.status === 404) {
+    return {
+      articleUrls: [],
+      nextPageUrl: null,
+      pageNumber: parsePageNumber(url),
+      title: null
+    };
+  }
+
+  if (!response.ok) {
+    throw new Error(`Foreign Affairs podcast archive request failed with HTTP ${response.status}.`);
+  }
+
+  return parseForeignAffairsPodcastArchivePage(await response.text(), url);
 }
 
 export async function fetchForeignAffairsArticle(
@@ -222,6 +254,33 @@ export function parseForeignAffairsTaxonomyPage(
   };
 }
 
+export function parseForeignAffairsPodcastArchivePage(
+  html: string,
+  pageUrl: string
+): ForeignAffairsPodcastArchivePage {
+  const document = parse(html);
+  const articleUrls = new Map<string, string>();
+
+  for (const link of findElements(document, (element) => element.tagName === "a")) {
+    const href = getAttribute(link, "href");
+    const url = href ? resolveUrl(href, pageUrl) : null;
+
+    if (!url || !isPodcastEpisodeUrl(url)) {
+      continue;
+    }
+
+    const normalized = normalizeForeignAffairsUrl(url);
+    articleUrls.set(normalized, normalized);
+  }
+
+  return {
+    articleUrls: Array.from(articleUrls.values()),
+    nextPageUrl: pickNextPageUrl(document, pageUrl),
+    pageNumber: parsePageNumber(pageUrl),
+    title: pickTitle(document)
+  };
+}
+
 export function parseForeignAffairsArticle(
   html: string,
   pageUrl: string,
@@ -296,6 +355,36 @@ export function resolveForeignAffairsRootUrl(candidate: string): URL {
   return new URL("/", "https://www.foreignaffairs.com");
 }
 
+export function resolveForeignAffairsInterviewArchiveUrl(candidate: string): URL {
+  const url = new URL(candidate);
+
+  if (!isForeignAffairsHost(url.hostname)) {
+    throw new Error(`Expected a Foreign Affairs URL, got: ${candidate}`);
+  }
+
+  if (url.pathname === "/rss.xml") {
+    return new URL("/podcasts/foreign-affairs-interview", "https://www.foreignaffairs.com");
+  }
+
+  if (!isForeignAffairsInterviewArchiveUrl(url.toString())) {
+    throw new Error(`Expected The Foreign Affairs Interview archive URL, got: ${candidate}`);
+  }
+
+  return new URL("/podcasts/foreign-affairs-interview", "https://www.foreignaffairs.com");
+}
+
+export function isForeignAffairsInterviewArchiveUrl(candidate: string): boolean {
+  try {
+    const url = new URL(candidate);
+    return (
+      isForeignAffairsHost(url.hostname) &&
+      /^\/podcasts\/foreign-affairs-interview\/?$/.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function isForeignAffairsUrl(candidate: string): boolean {
   try {
     return isForeignAffairsHost(new URL(candidate).hostname);
@@ -324,6 +413,14 @@ function pickNextPageUrl(document: HtmlNode, pageUrl: string): string | null {
   }
 
   return null;
+}
+
+function isPodcastEpisodeUrl(url: URL): boolean {
+  return (
+    isForeignAffairsHost(url.hostname) &&
+    /^\/podcasts\/[^/?#]+\/?$/.test(url.pathname) &&
+    !isForeignAffairsInterviewArchiveUrl(url.toString())
+  );
 }
 
 function pickDataLayerArticle(html: string): DataLayerArticle | null {

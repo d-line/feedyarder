@@ -20,6 +20,7 @@ interface DueFeedRow {
 export interface FeedBackfillTarget {
   id: string;
   feedUrl: string;
+  lastBackfilledAt: Date | null;
   siteUrl: string | null;
   title: string | null;
 }
@@ -33,6 +34,7 @@ export interface FolderBackfillTarget {
 interface FeedBackfillTargetRow {
   id: string;
   feed_url: string;
+  last_backfilled_at: Date | null;
   site_url: string | null;
   title: string | null;
 }
@@ -84,7 +86,7 @@ export async function getFeedBackfillTarget(
 ): Promise<FeedBackfillTarget | null> {
   const result = await pool.query<FeedBackfillTargetRow>(
     `
-      select id, feed_url, site_url, title
+      select id, feed_url, last_backfilled_at, site_url, title
       from feeds
       where id = $1
     `,
@@ -99,6 +101,7 @@ export async function getFeedBackfillTarget(
   return {
     feedUrl: row.feed_url,
     id: row.id,
+    lastBackfilledAt: row.last_backfilled_at ?? null,
     siteUrl: row.site_url,
     title: row.title
   };
@@ -136,7 +139,7 @@ export async function getFolderBackfillTarget(
 
   const feedResult = await pool.query<FeedBackfillTargetRow>(
     `
-      select id, feed_url, site_url, title
+      select id, feed_url, last_backfilled_at, site_url, title
       from feeds
       where folder_id = $1
       order by created_at desc, id asc
@@ -155,9 +158,28 @@ function mapFeedBackfillTarget(row: FeedBackfillTargetRow): FeedBackfillTarget {
   return {
     feedUrl: row.feed_url,
     id: row.id,
+    lastBackfilledAt: row.last_backfilled_at ?? null,
     siteUrl: row.site_url,
     title: row.title
   };
+}
+
+export async function recordFeedBackfillComplete(pool: Pool, feedId: string): Promise<void> {
+  const result = await pool.query<{ id: string }>(
+    `
+      update feeds
+      set
+        last_backfilled_at = now(),
+        updated_at = now()
+      where id = $1
+      returning id
+    `,
+    [feedId]
+  );
+
+  if ((result.rowCount ?? 0) === 0) {
+    throw new Error(`Backfill target feed ${feedId} was not found while marking completion.`);
+  }
 }
 
 export async function recordFetchOutcome(

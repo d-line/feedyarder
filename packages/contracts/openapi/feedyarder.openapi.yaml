@@ -703,6 +703,7 @@ components:
         - isPaused
         - fetchIntervalMinutes
         - consecutiveErrorCount
+        - lastBackfilledAt
         - lastSuccessAt
         - lastErrorAt
         - lastErrorCategory
@@ -734,6 +735,9 @@ components:
           type: integer
         consecutiveErrorCount:
           type: integer
+        lastBackfilledAt:
+          type: [string, "null"]
+          format: date-time
         lastSuccessAt:
           type: [string, "null"]
           format: date-time

@@ -17,6 +17,7 @@ describe("resolveYouTubeBackfillUrls", () => {
       resolveYouTubeBackfillUrls({
         feedUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UC123",
         id: "feed-id",
+        lastBackfilledAt: null,
         siteUrl: null,
         title: null
       })
@@ -31,6 +32,7 @@ describe("resolveYouTubeBackfillUrls", () => {
       resolveYouTubeBackfillUrls({
         feedUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UC123",
         id: "feed-id",
+        lastBackfilledAt: null,
         siteUrl: "https://www.youtube.com/@example",
         title: null
       })

@@ -25,6 +25,7 @@ export interface FeedRecord {
   is_paused: boolean;
   fetch_interval_minutes: number;
   consecutive_error_count: number;
+  last_backfilled_at: Date | null;
   last_success_at: Date | null;
   last_error_at: Date | null;
   last_error_category: string | null;
@@ -43,6 +44,7 @@ export interface FeedResponse {
   isPaused: boolean;
   fetchIntervalMinutes: number;
   consecutiveErrorCount: number;
+  lastBackfilledAt: string | null;
   lastSuccessAt: string | null;
   lastErrorAt: string | null;
   lastErrorCategory: string | null;
@@ -97,6 +99,7 @@ function mapFeed(row: FeedRecord): FeedResponse {
     folderId: row.folder_id,
     id: row.id,
     isPaused: row.is_paused,
+    lastBackfilledAt: row.last_backfilled_at?.toISOString() ?? null,
     lastErrorAt: row.last_error_at?.toISOString() ?? null,
     lastErrorCategory: row.last_error_category,
     lastErrorMessage: row.last_error_message,
@@ -214,6 +217,7 @@ export async function listFeeds(pool: Pool): Promise<FeedResponse[]> {
         is_paused,
         fetch_interval_minutes,
         consecutive_error_count,
+        last_backfilled_at,
         last_success_at,
         last_error_at,
         last_error_category,
@@ -257,6 +261,7 @@ export async function createFeed(
         is_paused,
         fetch_interval_minutes,
         consecutive_error_count,
+        last_backfilled_at,
         last_success_at,
         last_error_at,
         last_error_category,
@@ -308,6 +313,7 @@ export async function updateFeed(
         is_paused,
         fetch_interval_minutes,
         consecutive_error_count,
+        last_backfilled_at,
         last_success_at,
         last_error_at,
         last_error_category,

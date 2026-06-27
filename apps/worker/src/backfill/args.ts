@@ -3,6 +3,7 @@ export type BackfillSelection =
   | { folderReference: string; kind: "folder" };
 
 export interface BackfillArguments {
+  force: boolean;
   liquorSitemapFile: string | null;
   rutrackerStart: number | null;
   selection: BackfillSelection;
@@ -10,9 +11,9 @@ export interface BackfillArguments {
 
 const usage = [
   "Usage:",
-  "  npm run backfill -- <feed-id> [--start <offset>] [--sitemap-file <path>]",
-  "  npm run backfill -- <feed-id> [start-offset]",
-  "  npm run backfill -- --folder <folder-id-or-title> [--start <offset>] [--sitemap-file <path>]"
+  "  npm run backfill -- <feed-id> [--force] [--start <offset>] [--sitemap-file <path>]",
+  "  npm run backfill -- <feed-id> [start-offset] [--force]",
+  "  npm run backfill -- --folder <folder-id-or-title> [--force] [--start <offset>] [--sitemap-file <path>]"
 ].join("\n");
 
 export function parseBackfillArguments(args: string[]): BackfillArguments {
@@ -21,6 +22,7 @@ export function parseBackfillArguments(args: string[]): BackfillArguments {
   }
 
   let selection: BackfillSelection | null = null;
+  let force = false;
   let rutrackerStart: number | null = null;
   let liquorSitemapFile: string | null = null;
 
@@ -44,6 +46,11 @@ export function parseBackfillArguments(args: string[]): BackfillArguments {
 
       selection = { folderReference, kind: "folder" };
       index += 1;
+      continue;
+    }
+
+    if (argument === "--force") {
+      force = true;
       continue;
     }
 
@@ -92,7 +99,7 @@ export function parseBackfillArguments(args: string[]): BackfillArguments {
     throw new Error(usage);
   }
 
-  return { liquorSitemapFile, rutrackerStart, selection };
+  return { force, liquorSitemapFile, rutrackerStart, selection };
 }
 
 function parseStartOffset(value: string): number {

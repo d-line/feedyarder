@@ -19,9 +19,12 @@ import {
 } from "./backfill/githubBlog.js";
 import {
   fetchForeignAffairsArticle,
+  fetchForeignAffairsPodcastArchivePage,
   fetchForeignAffairsTaxonomies,
   fetchForeignAffairsTaxonomyPage,
+  isForeignAffairsInterviewArchiveUrl,
   isForeignAffairsUrl,
+  resolveForeignAffairsInterviewArchiveUrl,
   resolveForeignAffairsRootUrl
 } from "./backfill/foreignAffairs.js";
 import {
@@ -65,12 +68,23 @@ import {
   type PromodjListedItem
 } from "./backfill/promodj.js";
 import {
+  isEzraKleinFeed,
+  runEzraKleinBackfill
+} from "./backfill/ezraKlein.js";
+import {
   fetchLearnCategories,
   fetchLearnCategoryPage,
   fetchLearnGuideDetail,
   normalizeLearnGuide,
   resolveLearnRootUrl
 } from "./backfill/learn.js";
+import {
+  fetchLibsynArchivePage,
+  fetchLibsynRssOverrides,
+  isFlossWeeklyLibsynUrl,
+  resolveFlossWeeklyLibsynArchiveUrl,
+  resolveFlossWeeklyLibsynFeedUrl
+} from "./backfill/libsyn.js";
 import {
   buildRutrackerForumUrl,
   fetchRutrackerBackfillPage
@@ -89,6 +103,17 @@ import {
   resolveSubstackRootUrl
 } from "./backfill/substack.js";
 import {
+  fetchTwitEpisodeDetail,
+  fetchTwitEpisodeListPage,
+  fetchTwitRssOverrides,
+  fetchTwitRssSiteUrl,
+  fetchTwitShowArchiveUrl,
+  isTwitUrl,
+  normalizeTwitEpisodeListEntry,
+  resolveTwitEpisodeArchiveUrl,
+  type TwitRssOverride
+} from "./backfill/twit.js";
+import {
   collectYouTubeBackfillItemBatches,
   resolveYouTubeBackfillUrls
 } from "./backfill/youtube.js";
@@ -97,6 +122,7 @@ import {
   getFeedBackfillTarget,
   getFolderBackfillTarget,
   insertItemsWithResults,
+  recordFeedBackfillComplete,
   type FeedBackfillTarget
 } from "./repository.js";
 import type { NormalizedItem } from "./fetch/types.js";
@@ -125,6 +151,17 @@ interface BackfillResult {
   source: string;
 }
 
+interface BackfillRunOptions {
+  force: boolean;
+  liquorSitemapFile: string | null;
+  rutrackerStart: number | null;
+  timeoutMs: number;
+}
+
+type BackfillRunOutcome =
+  | { kind: "completed"; result: BackfillResult }
+  | { kind: "skipped" };
+
 async function run(): Promise<void> {
   const args = parseBackfillArguments(process.argv.slice(2));
   const config = getConfig();
@@ -139,16 +176,23 @@ async function run(): Promise<void> {
       }
 
       console.log(
-        `Starting backfill for feed ${feed.id} with config: ${formatConfigForLog(config)}`
+        `Starting backfill for feed ${feed.id} force=${args.force} with config: ${formatConfigForLog(config)}`
       );
-      const result = await backfillFeed(
+      const outcome = await backfillFeedWithTracking(
         pool,
         feed,
-        config.FETCH_TOTAL_TIMEOUT_MS,
-        args.rutrackerStart,
-        args.liquorSitemapFile
+        {
+          force: args.force,
+          liquorSitemapFile: args.liquorSitemapFile,
+          rutrackerStart: args.rutrackerStart,
+          timeoutMs: config.FETCH_TOTAL_TIMEOUT_MS
+        }
       );
-      logBackfillComplete(feed, result);
+
+      if (outcome.kind === "completed") {
+        logBackfillComplete(feed, outcome.result);
+      }
+
       return;
     }
 
@@ -159,22 +203,32 @@ async function run(): Promise<void> {
     }
 
     console.log(
-      `Starting backfill for folder ${folder.title} (${folder.id}): feeds=${folder.feeds.length} config=${formatConfigForLog(config)}`
+      `Starting backfill for folder ${folder.title} (${folder.id}): feeds=${folder.feeds.length} force=${args.force} config=${formatConfigForLog(config)}`
     );
     const failures: Array<{ error: unknown; feed: FeedBackfillTarget }> = [];
+    let skippedCount = 0;
 
     for (const feed of folder.feeds) {
       console.log(`Starting folder feed backfill: ${feed.title ?? feed.feedUrl} (${feed.id})`);
 
       try {
-        const result = await backfillFeed(
+        const outcome = await backfillFeedWithTracking(
           pool,
           feed,
-          config.FETCH_TOTAL_TIMEOUT_MS,
-          args.rutrackerStart,
-          args.liquorSitemapFile
+          {
+            force: args.force,
+            liquorSitemapFile: args.liquorSitemapFile,
+            rutrackerStart: args.rutrackerStart,
+            timeoutMs: config.FETCH_TOTAL_TIMEOUT_MS
+          }
         );
-        logBackfillComplete(feed, result);
+
+        if (outcome.kind === "skipped") {
+          skippedCount += 1;
+          continue;
+        }
+
+        logBackfillComplete(feed, outcome.result);
       } catch (error) {
         failures.push({ error, feed });
         console.error(
@@ -184,7 +238,7 @@ async function run(): Promise<void> {
     }
 
     console.log(
-      `Folder backfill complete for ${folder.title}: feeds=${folder.feeds.length} succeeded=${folder.feeds.length - failures.length} failed=${failures.length}`
+      `Folder backfill complete for ${folder.title}: feeds=${folder.feeds.length} completed=${folder.feeds.length - failures.length - skippedCount} skipped=${skippedCount} failed=${failures.length}`
     );
 
     if (failures.length > 0) {
@@ -194,6 +248,37 @@ async function run(): Promise<void> {
     console.error("Ending backfill process and closing database pool.");
     await pool.end();
   }
+}
+
+async function backfillFeedWithTracking(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  options: BackfillRunOptions
+): Promise<BackfillRunOutcome> {
+  if (feed.lastBackfilledAt && !options.force) {
+    console.warn(
+      `Warning: skipping backfill for ${formatFeedLabel(feed)} (${feed.id}); feed was already backfilled at ${feed.lastBackfilledAt.toISOString()}. Use --force to run it again.`
+    );
+    return { kind: "skipped" };
+  }
+
+  if (feed.lastBackfilledAt && options.force) {
+    console.warn(
+      `Warning: forcing backfill for ${formatFeedLabel(feed)} (${feed.id}); previous backfill completed at ${feed.lastBackfilledAt.toISOString()}.`
+    );
+  }
+
+  const result = await backfillFeed(
+    pool,
+    feed,
+    options.timeoutMs,
+    options.rutrackerStart,
+    options.liquorSitemapFile
+  );
+
+  await recordFeedBackfillComplete(pool, feed.id);
+
+  return { kind: "completed", result };
 }
 
 async function backfillFeed(
@@ -217,25 +302,37 @@ async function backfillFeed(
               ? backfillSubstackFeed(pool, feed, timeoutMs)
               : isRedditFeed(feed)
                 ? backfillRedditFeed(pool, feed, timeoutMs)
-                : isForeignAffairsFeed(feed)
-                  ? backfillForeignAffairsFeed(pool, feed, timeoutMs)
-                  : isLiquorFeed(feed)
-                    ? backfillLiquorFeed(pool, feed, timeoutMs, liquorSitemapFile)
-                    : isFlibustaFeed(feed)
-                      ? backfillFlibustaFeed(pool, feed, timeoutMs)
-                      : isNprFreshAirFeed(feed)
-                        ? backfillNprFreshAirFeed(pool, feed, timeoutMs)
-                        : isNprIndicatorFeed(feed)
-                          ? backfillNprIndicatorFeed(pool, feed, timeoutMs)
+                : isForeignAffairsInterviewFeed(feed)
+                  ? backfillForeignAffairsInterviewFeed(pool, feed, timeoutMs)
+                  : isForeignAffairsFeed(feed)
+                    ? backfillForeignAffairsFeed(pool, feed, timeoutMs)
+                    : isLiquorFeed(feed)
+                      ? backfillLiquorFeed(pool, feed, timeoutMs, liquorSitemapFile)
+                      : isFlibustaFeed(feed)
+                        ? backfillFlibustaFeed(pool, feed, timeoutMs)
+                        : isNprFreshAirFeed(feed)
+                          ? backfillNprFreshAirFeed(pool, feed, timeoutMs)
+                          : isNprIndicatorFeed(feed)
+                            ? backfillNprIndicatorFeed(pool, feed, timeoutMs)
                           : isPromodjFeed(feed)
                             ? backfillPromodjFeed(pool, feed, timeoutMs)
-                            : backfillRutrackerFeed(pool, feed, timeoutMs, rutrackerStart);
+                            : isTwitFeed(feed)
+                              ? backfillTwitFeed(pool, feed, timeoutMs)
+                              : isFlossWeeklyLibsynFeed(feed)
+                                ? backfillFlossWeeklyLibsynFeed(pool, feed, timeoutMs)
+                                : isEzraKleinFeed(feed)
+                                  ? runEzraKleinBackfill(pool, feed, { FETCH_TOTAL_TIMEOUT_MS: timeoutMs })
+                                  : backfillRutrackerFeed(pool, feed, timeoutMs, rutrackerStart);
 }
 
 function logBackfillComplete(feed: FeedBackfillTarget, result: BackfillResult): void {
   console.log(
     `Backfill complete for ${feed.title ?? feed.feedUrl}: source=${result.source} pages=${result.pageCount} discovered=${result.discoveredCount} inserted=${result.insertedCount}`
   );
+}
+
+function formatFeedLabel(feed: FeedBackfillTarget): string {
+  return feed.title ?? feed.feedUrl;
 }
 
 function formatError(error: unknown): string {
@@ -766,6 +863,109 @@ async function backfillForeignAffairsFeed(
   };
 }
 
+async function backfillForeignAffairsInterviewFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const startUrl = resolveForeignAffairsInterviewBackfillStartUrl(feed);
+  const foreignAffairsDelay = resolveForeignAffairsBackfillDelay();
+  const seenArticleUrls = new Set<string>();
+  const seenSourceIds = new Set<string>();
+  const seenArchivePageUrls = new Set<string>();
+  const sourceTaxonomy = {
+    slug: "foreign-affairs-interview",
+    title: "The Foreign Affairs Interview",
+    type: "tag" as const,
+    url: startUrl
+  };
+  let discoveredCount = 0;
+  let insertedCount = 0;
+  let pageUrl: string | null = startUrl;
+
+  while (pageUrl && seenArchivePageUrls.size < maxPages) {
+    if (seenArchivePageUrls.has(pageUrl)) {
+      break;
+    }
+
+    seenArchivePageUrls.add(pageUrl);
+
+    console.log("\n==================================================================================================");
+    console.log(`Backfill crawling The Foreign Affairs Interview pageUrl=${pageUrl}`);
+    console.log("==================================================================================================");
+
+    await sleepRandom(foreignAffairsDelay);
+    const page = await fetchForeignAffairsPodcastArchivePage(pageUrl, timeoutMs);
+    console.log("\n==================================================================================================");
+    console.log(
+      `Backfill The Foreign Affairs Interview archive parsed: page=${page.pageNumber} articleUrls=${page.articleUrls.length} next=${page.nextPageUrl ?? "none"}`
+    );
+    console.log("==================================================================================================");
+
+    const items: NormalizedItem[] = [];
+
+    for (const articleUrl of page.articleUrls) {
+      console.log(`\n-----------------------------------------------------------------------------------------------`);
+      if (seenArticleUrls.has(articleUrl)) {
+        console.log(`Backfill The Foreign Affairs Interview article skipped_duplicate_discovery | url=${articleUrl}`);
+        continue;
+      }
+
+      seenArticleUrls.add(articleUrl);
+      console.log(`Backfill The Foreign Affairs Interview article detail fetching | url=${articleUrl}`);
+
+      await sleepRandom(foreignAffairsDelay);
+      const item = await fetchForeignAffairsArticle(articleUrl, feed.id, timeoutMs, {
+        sourcePageUrl: pageUrl,
+        taxonomy: sourceTaxonomy
+      });
+
+      if (!item) {
+        console.log(`Backfill The Foreign Affairs Interview article skipped_normalize_failed | url=${articleUrl}`);
+        continue;
+      }
+
+      const sourceId = readSourceId(item);
+
+      if (sourceId && seenSourceIds.has(sourceId)) {
+        console.log(
+          `Backfill The Foreign Affairs Interview article skipped_duplicate_normalized | sourceId=${sourceId} | url=${item.url ?? articleUrl}`
+        );
+        continue;
+      }
+
+      if (sourceId) {
+        seenSourceIds.add(sourceId);
+      }
+
+      console.log(
+        `Backfill The Foreign Affairs Interview article normalized | sourceId=${sourceId ?? "unknown"} | publishedAt=${item.publishedAt ?? "null"} | title=${item.title ?? "null"} | url=${item.url ?? "null"}`
+      );
+      items.push(item);
+      console.log(`-----------------------------------------------------------------------------------------------`);
+    }
+
+    discoveredCount += items.length;
+
+    for (const result of await insertItemsWithResults(pool, feed.id, items)) {
+      console.log(formatInsertDebugLine(result.item, result.inserted));
+
+      if (result.inserted) {
+        insertedCount += 1;
+      }
+    }
+
+    pageUrl = page.nextPageUrl;
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount: seenArchivePageUrls.size,
+    source: "foreign-affairs-interview"
+  };
+}
+
 async function backfillLiquorFeed(
   pool: Pool,
   feed: FeedBackfillTarget,
@@ -959,6 +1159,145 @@ async function backfillLiquorFeed(
   } finally {
     await browserSession.close();
   }
+}
+
+async function backfillFlossWeeklyLibsynFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const startUrl = resolveFlossWeeklyLibsynBackfillStartUrl(feed);
+  const rssUrl = resolveFlossWeeklyLibsynBackfillFeedUrl(feed);
+  const rssOverrides = await fetchLibsynRssOverrides(rssUrl, feed.id, timeoutMs);
+  const seenPageUrls = new Set<string>();
+  let pageUrl: string | null = startUrl;
+  let discoveredCount = 0;
+  let insertedCount = 0;
+
+  console.log(`Backfill FLOSS Weekly Libsyn RSS overrides loaded: url=${rssUrl} count=${rssOverrides.size}`);
+
+  while (pageUrl && seenPageUrls.size < maxPages) {
+    if (seenPageUrls.has(pageUrl)) {
+      break;
+    }
+
+    seenPageUrls.add(pageUrl);
+    console.log(`Backfill crawling FLOSS Weekly Libsyn pageUrl=${pageUrl}`);
+
+    const page = await fetchLibsynArchivePage(pageUrl, feed.id, timeoutMs, rssOverrides);
+    console.log(
+      `Backfill FLOSS Weekly Libsyn page parsed: page=${page.pageNumber} items=${page.items.length} next=${page.nextPageUrl ?? "none"}`
+    );
+
+    discoveredCount += page.items.length;
+
+    for (const result of await insertItemsWithResults(pool, feed.id, page.items)) {
+      console.log(formatInsertDebugLine(result.item, result.inserted));
+
+      if (result.inserted) {
+        insertedCount += 1;
+      }
+    }
+
+    pageUrl = page.nextPageUrl;
+
+    if (pageUrl) {
+      await sleep(defaultRequestDelayMs);
+    }
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount: seenPageUrls.size,
+    source: "floss-weekly-libsyn"
+  };
+}
+
+async function backfillTwitFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const { archiveUrl, rssUrl } = await resolveTwitBackfillConfig(feed, timeoutMs);
+  const rssOverrides = rssUrl
+    ? await fetchTwitRssOverrides(rssUrl, feed.id, timeoutMs)
+    : new Map<string, TwitRssOverride>();
+  const seenPageUrls = new Set<string>();
+  const seenEpisodeUrls = new Set<string>();
+  let pageUrl: string | null = archiveUrl;
+  let discoveredCount = 0;
+  let insertedCount = 0;
+
+  console.log(
+    `Backfill Twit starting: archiveUrl=${archiveUrl} rssUrl=${rssUrl ?? "none"} rssOverrides=${rssOverrides.size}`
+  );
+
+  while (pageUrl && seenPageUrls.size < maxPages) {
+    if (seenPageUrls.has(pageUrl)) {
+      break;
+    }
+
+    seenPageUrls.add(pageUrl);
+    console.log(`Backfill crawling Twit archive pageUrl=${pageUrl}`);
+
+    const page = await fetchTwitEpisodeListPage(pageUrl, timeoutMs);
+    console.log(
+      `Backfill Twit archive page parsed: showId=${page.showId ?? "unknown"} page=${page.pageNumber} episodes=${page.episodeUrls.length} totalPages=${page.totalPages ?? "unknown"} next=${page.nextPageUrl ?? "none"}`
+    );
+
+    const items: NormalizedItem[] = [];
+
+    for (const episode of page.episodes) {
+      const episodeUrl = episode.url;
+
+      if (seenEpisodeUrls.has(episodeUrl)) {
+        console.log(`Backfill Twit episode skipped_duplicate_discovery | url=${episodeUrl}`);
+        continue;
+      }
+
+      seenEpisodeUrls.add(episodeUrl);
+      console.log(`Backfill Twit episode detail fetching | url=${episodeUrl}`);
+
+      await sleep(defaultRequestDelayMs);
+      const item =
+        await fetchTwitEpisodeDetail(episodeUrl, feed.id, timeoutMs, rssOverrides) ??
+        normalizeTwitEpisodeListEntry(episode, feed.id, rssOverrides);
+
+      if (!item) {
+        console.log(`Backfill Twit episode skipped_normalize_failed | url=${episodeUrl}`);
+        continue;
+      }
+
+      console.log(
+        `Backfill Twit episode normalized | sourceId=${readSourceId(item) ?? "unknown"} | publishedAt=${item.publishedAt ?? "null"} | title=${item.title ?? "null"} | url=${item.url ?? "null"}`
+      );
+      items.push(item);
+    }
+
+    discoveredCount += items.length;
+
+    for (const result of await insertItemsWithResults(pool, feed.id, items)) {
+      console.log(formatInsertDebugLine(result.item, result.inserted));
+
+      if (result.inserted) {
+        insertedCount += 1;
+      }
+    }
+
+    pageUrl = page.nextPageUrl;
+
+    if (pageUrl) {
+      await sleep(defaultRequestDelayMs);
+    }
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount: seenPageUrls.size,
+    source: "twit"
+  };
 }
 
 async function backfillFlibustaFeed(
@@ -1389,6 +1728,37 @@ function readSourceId(item: NormalizedItem): string | null {
     return redditData.name;
   }
 
+  const libsynData = item.rawExtensionData.libsyn;
+
+  if (
+    libsynData &&
+    typeof libsynData === "object" &&
+    "itemId" in libsynData &&
+    typeof libsynData.itemId === "string"
+  ) {
+    return libsynData.itemId;
+  }
+
+  const twitData = item.rawExtensionData.twit;
+
+  if (twitData && typeof twitData === "object") {
+    if (
+      "episodeKey" in twitData &&
+      typeof twitData.episodeKey === "string" &&
+      twitData.episodeKey.length > 0
+    ) {
+      return twitData.episodeKey;
+    }
+
+    if (
+      "episodeNumber" in twitData &&
+      typeof twitData.episodeNumber === "string" &&
+      twitData.episodeNumber.length > 0
+    ) {
+      return twitData.episodeNumber;
+    }
+  }
+
   const foreignAffairsData = item.rawExtensionData.foreignAffairs;
 
   if (
@@ -1600,6 +1970,120 @@ function resolveRedditBackfillStartUrl(feed: FeedBackfillTarget): string {
   throw new Error(`Feed ${feed.id} does not point to an old Reddit subreddit listing.`);
 }
 
+function resolveFlossWeeklyLibsynBackfillStartUrl(feed: FeedBackfillTarget): string {
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return resolveFlossWeeklyLibsynArchiveUrl(candidate).toString();
+    } catch {
+      continue;
+    }
+  }
+
+  if (isFlossWeeklyTitle(feed.title)) {
+    return resolveFlossWeeklyLibsynArchiveUrl("https://flossweekly.libsyn.com/").toString();
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to FLOSS Weekly on Libsyn.`);
+}
+
+function resolveFlossWeeklyLibsynBackfillFeedUrl(feed: FeedBackfillTarget): string {
+  for (const candidate of [feed.feedUrl, feed.siteUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return resolveFlossWeeklyLibsynFeedUrl(candidate).toString();
+    } catch {
+      continue;
+    }
+  }
+
+  if (isFlossWeeklyTitle(feed.title)) {
+    return resolveFlossWeeklyLibsynFeedUrl("https://flossweekly.libsyn.com/").toString();
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to FLOSS Weekly on Libsyn.`);
+}
+
+async function resolveTwitBackfillConfig(
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ archiveUrl: string; rssUrl: string | null }> {
+  const rssUrl = resolveTwitRssUrl(feed);
+
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return {
+        archiveUrl: resolveTwitEpisodeArchiveUrl(candidate).toString(),
+        rssUrl
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      const url = new URL(candidate);
+
+      if (url.hostname === "twit.tv" || url.hostname === "www.twit.tv") {
+        return {
+          archiveUrl: await fetchTwitShowArchiveUrl(url.toString(), timeoutMs),
+          rssUrl
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  if (rssUrl) {
+    const siteUrl = await fetchTwitRssSiteUrl(rssUrl, feed.id, timeoutMs);
+
+    if (siteUrl) {
+      return {
+        archiveUrl: await fetchTwitShowArchiveUrl(siteUrl, timeoutMs),
+        rssUrl
+      };
+    }
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to a Twit show or Twit episodes archive.`);
+}
+
+function resolveTwitRssUrl(feed: FeedBackfillTarget): string | null {
+  for (const candidate of [feed.feedUrl, feed.siteUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      const url = new URL(candidate);
+
+      if (url.hostname === "feeds.twit.tv") {
+        return url.toString();
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 function resolveForeignAffairsBackfillStartUrl(feed: FeedBackfillTarget): string {
   for (const candidate of [feed.siteUrl, feed.feedUrl]) {
     if (!candidate) {
@@ -1614,6 +2098,26 @@ function resolveForeignAffairsBackfillStartUrl(feed: FeedBackfillTarget): string
   }
 
   throw new Error(`Feed ${feed.id} does not point to Foreign Affairs.`);
+}
+
+function resolveForeignAffairsInterviewBackfillStartUrl(feed: FeedBackfillTarget): string {
+  for (const candidate of [feed.siteUrl, feed.feedUrl]) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      return resolveForeignAffairsInterviewArchiveUrl(candidate).toString();
+    } catch {
+      continue;
+    }
+  }
+
+  if (isForeignAffairsInterviewTitle(feed.title)) {
+    return resolveForeignAffairsInterviewArchiveUrl("https://www.foreignaffairs.com/rss.xml").toString();
+  }
+
+  throw new Error(`Feed ${feed.id} does not point to The Foreign Affairs Interview archive.`);
 }
 
 function resolveLiquorBackfillStartUrl(feed: FeedBackfillTarget): string {
@@ -1780,6 +2284,22 @@ function isRedditFeed(feed: FeedBackfillTarget): boolean {
   });
 }
 
+function isFlossWeeklyLibsynFeed(feed: FeedBackfillTarget): boolean {
+  if ([feed.siteUrl, feed.feedUrl].some((candidate) => candidate && isFlossWeeklyLibsynUrl(candidate))) {
+    return true;
+  }
+
+  return isFlossWeeklyTitle(feed.title);
+}
+
+function isFlossWeeklyTitle(title: string | null): boolean {
+  return title?.trim().toLowerCase() === "floss weekly";
+}
+
+function isTwitFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some((candidate) => candidate && isTwitUrl(candidate));
+}
+
 function isForeignAffairsFeed(feed: FeedBackfillTarget): boolean {
   return [feed.siteUrl, feed.feedUrl].some((candidate) => {
     if (!candidate) {
@@ -1788,6 +2308,18 @@ function isForeignAffairsFeed(feed: FeedBackfillTarget): boolean {
 
     return isForeignAffairsUrl(candidate);
   });
+}
+
+function isForeignAffairsInterviewFeed(feed: FeedBackfillTarget): boolean {
+  if ([feed.siteUrl, feed.feedUrl].some((candidate) => candidate && isForeignAffairsInterviewArchiveUrl(candidate))) {
+    return true;
+  }
+
+  return isForeignAffairsInterviewTitle(feed.title);
+}
+
+function isForeignAffairsInterviewTitle(title: string | null): boolean {
+  return title?.trim().toLowerCase() === "the foreign affairs interview";
 }
 
 function isLiquorFeed(feed: FeedBackfillTarget): boolean {

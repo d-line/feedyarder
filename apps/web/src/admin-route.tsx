@@ -543,6 +543,7 @@ export function AdminRoute() {
               <span>status:{selectedFeed.isPaused ? "paused" : selectedFeed.status}</span>
               <span>interval:{selectedFeed.fetchIntervalMinutes}m</span>
               <span>errors:{selectedFeed.consecutiveErrorCount}</span>
+              <span>last backfill:{selectedFeed.lastBackfilledAt ? formatTimestamp(selectedFeed.lastBackfilledAt) : "never"}</span>
               <span>last success:{selectedFeed.lastSuccessAt ? formatTimestamp(selectedFeed.lastSuccessAt) : "never"}</span>
             </div>
 
@@ -739,6 +740,10 @@ export function AdminRoute() {
                 <strong>{feed.title ?? feed.feedUrl}</strong>
                 <br />
                 <span className="table-subline">{feed.lastErrorMessage ?? feed.feedUrl}</span>
+                <br />
+                <span className="table-subline">
+                  backfill:{feed.lastBackfilledAt ? formatTimestamp(feed.lastBackfilledAt) : "never"}
+                </span>
               </span>
               <span>{findFolderTitle(folders, feed.folderId)}</span>
               <span className={`status-pill status-${getFeedTone(feed)}`}>

@@ -5,6 +5,7 @@ import { parseBackfillArguments } from "./args.js";
 describe("parseBackfillArguments", () => {
   it("parses a feed id", () => {
     expect(parseBackfillArguments(["feed-id"])).toEqual({
+      force: false,
       liquorSitemapFile: null,
       rutrackerStart: null,
       selection: { feedId: "feed-id", kind: "feed" }
@@ -13,6 +14,7 @@ describe("parseBackfillArguments", () => {
 
   it("parses a folder title and named start offset", () => {
     expect(parseBackfillArguments(["--folder", "youtube", "--start", "150"])).toEqual({
+      force: false,
       liquorSitemapFile: null,
       rutrackerStart: 150,
       selection: { folderReference: "youtube", kind: "folder" }
@@ -21,6 +23,7 @@ describe("parseBackfillArguments", () => {
 
   it("supports a positional RuTracker start offset for a single feed", () => {
     expect(parseBackfillArguments(["feed-id", "50"])).toEqual({
+      force: false,
       liquorSitemapFile: null,
       rutrackerStart: 50,
       selection: { feedId: "feed-id", kind: "feed" }
@@ -35,9 +38,25 @@ describe("parseBackfillArguments", () => {
         "/Users/example/Downloads/sitemap_1.xml"
       ])
     ).toEqual({
+      force: false,
       liquorSitemapFile: "/Users/example/Downloads/sitemap_1.xml",
       rutrackerStart: null,
       selection: { feedId: "feed-id", kind: "feed" }
+    });
+  });
+
+  it("parses force for feed and folder backfills", () => {
+    expect(parseBackfillArguments(["feed-id", "--force"])).toEqual({
+      force: true,
+      liquorSitemapFile: null,
+      rutrackerStart: null,
+      selection: { feedId: "feed-id", kind: "feed" }
+    });
+    expect(parseBackfillArguments(["--folder", "youtube", "--force"])).toEqual({
+      force: true,
+      liquorSitemapFile: null,
+      rutrackerStart: null,
+      selection: { folderReference: "youtube", kind: "folder" }
     });
   });
 

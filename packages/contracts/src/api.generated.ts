@@ -84,6 +84,7 @@ const FeedResponse = z
     isPaused: z.boolean(),
     fetchIntervalMinutes: z.number().int(),
     consecutiveErrorCount: z.number().int(),
+    lastBackfilledAt: z.union([z.string(), z.null()]),
     lastSuccessAt: z.union([z.string(), z.null()]),
     lastErrorAt: z.union([z.string(), z.null()]),
     lastErrorCategory: z.union([z.string(), z.null()]),
