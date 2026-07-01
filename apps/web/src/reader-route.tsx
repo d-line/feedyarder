@@ -240,7 +240,7 @@ export function ReaderRoute() {
   async function loadItemsPage(cursor: string | null) {
     return listItems({
       cursor,
-      limit: 200,
+      limit: 100,
       ...(filters.feedId ? { feedId: filters.feedId } : {}),
       ...(filters.folderId ? { folderId: filters.folderId } : {}),
       ...(filters.q ? { q: filters.q } : {}),
