@@ -98,6 +98,7 @@ const FeedResponse = z
     siteUrl: z.union([z.string(), z.null()]),
     feedUrl: z.string().url(),
     faviconUrl: z.union([z.string(), z.null()]),
+    hasAuth: z.boolean(),
     status: z.string(),
     isPaused: z.boolean(),
     fetchIntervalMinutes: z.number().int(),
@@ -114,6 +115,8 @@ const FeedResponse = z
 const CreateFeedRequest = z
   .object({
     feedUrl: z.string().url(),
+    authUsername: z.string().min(1).max(256).optional(),
+    authPassword: z.string().min(1).max(1024).optional(),
     title: z.union([z.string(), z.null()]).optional(),
     siteUrl: z.union([z.string(), z.null()]).optional(),
     folderId: z.union([z.string(), z.null()]).optional(),
@@ -133,6 +136,9 @@ const FeedDiscoveryResponse: z.ZodType<FeedDiscoveryResponse> = z
 const UpdateFeedRequest = z
   .object({
     feedUrl: z.string().url(),
+    authUsername: z.string().min(1).max(256),
+    authPassword: z.string().min(1).max(1024),
+    clearAuth: z.boolean(),
     title: z.union([z.string(), z.null()]),
     siteUrl: z.union([z.string(), z.null()]),
     folderId: z.union([z.string(), z.null()]),

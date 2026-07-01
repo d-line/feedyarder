@@ -175,6 +175,15 @@ body {
   font: inherit;
 }
 
+.form-row-checkbox {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.form-row-checkbox input {
+  width: auto;
+}
+
 .form-row select {
   width: 100%;
   padding: 0.75rem 0.8rem;

@@ -280,6 +280,79 @@ describe("API integration", () => {
     expect(unreadAfterUpdate.data.items.some((item) => item.id === itemId)).toBe(false);
   });
 
+  it("stores and clears feed HTTP Basic auth without returning secrets", async () => {
+    await setupAndLogin();
+    const pool = requireTestPool();
+
+    const created = await request<{
+      authPassword?: string;
+      hasAuth: boolean;
+      id: string;
+    }>("/feeds", {
+      body: JSON.stringify({
+        authPassword: "secret-one",
+        authUsername: "reader-one",
+        feedUrl: "https://example.com/private.xml"
+      }),
+      method: "POST"
+    });
+
+    expect(created.response.status).toBe(201);
+    expect(created.data.hasAuth).toBe(true);
+    expect(created.data.authPassword).toBeUndefined();
+
+    const createdCredentials = await pool.query<{
+      auth_password: string | null;
+      auth_username: string | null;
+    }>(
+      `
+        select auth_username, auth_password
+        from feeds
+        where id = $1
+      `,
+      [created.data.id]
+    );
+    expect(createdCredentials.rows[0]).toEqual({
+      auth_password: "secret-one",
+      auth_username: "reader-one"
+    });
+
+    const updated = await request<{ hasAuth: boolean }>(`/feeds/${created.data.id}`, {
+      body: JSON.stringify({
+        authPassword: "secret-two",
+        authUsername: "reader-two"
+      }),
+      method: "PATCH"
+    });
+    expect(updated.response.status).toBe(200);
+    expect(updated.data.hasAuth).toBe(true);
+
+    const cleared = await request<{ hasAuth: boolean }>(`/feeds/${created.data.id}`, {
+      body: JSON.stringify({
+        clearAuth: true
+      }),
+      method: "PATCH"
+    });
+    expect(cleared.response.status).toBe(200);
+    expect(cleared.data.hasAuth).toBe(false);
+
+    const clearedCredentials = await pool.query<{
+      auth_password: string | null;
+      auth_username: string | null;
+    }>(
+      `
+        select auth_username, auth_password
+        from feeds
+        where id = $1
+      `,
+      [created.data.id]
+    );
+    expect(clearedCredentials.rows[0]).toEqual({
+      auth_password: null,
+      auth_username: null
+    });
+  });
+
   it("logs out current session and keeps logout idempotent", async () => {
     await setupAndLogin();
 
@@ -785,6 +858,18 @@ describe("API integration", () => {
     );
     expect(invalidFeedUpdatePayload.response.status).toBe(400);
     expect(invalidFeedUpdatePayload.data.error.code).toBe("invalid_request");
+
+    const invalidFeedAuthPayload = await request<{ error: { code: string; message: string } }>(
+      `/feeds/${feedOne.id}`,
+      {
+        body: JSON.stringify({
+          authUsername: "reader"
+        }),
+        method: "PATCH"
+      }
+    );
+    expect(invalidFeedAuthPayload.response.status).toBe(400);
+    expect(invalidFeedAuthPayload.data.error.code).toBe("invalid_request");
 
     const invalidFolderUpdatePayload = await request<{ error: { code: string; message: string } }>(
       `/folders/${folder.id}`,

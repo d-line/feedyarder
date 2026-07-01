@@ -177,6 +177,8 @@ export async function discoverFeeds(url: string): Promise<FeedDiscoveryResult> {
 }
 
 export async function createFeed(input: {
+  authPassword?: string;
+  authUsername?: string;
   feedUrl: string;
   folderId: string | null;
   siteUrl: string | null;
@@ -192,6 +194,9 @@ export async function createFeed(input: {
 export async function updateFeed(
   feedId: string,
   input: {
+    authPassword?: string;
+    authUsername?: string;
+    clearAuth?: boolean;
     feedUrl?: string;
     folderId?: string | null;
     isPaused?: boolean;

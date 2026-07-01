@@ -14,6 +14,7 @@ describe("feed-management repository", () => {
           feed_url: "https://example.com/feed.xml",
           fetch_interval_minutes: 60,
           folder_id: null,
+          has_auth: false,
           id: "00000000-0000-0000-0000-000000000100",
           is_paused: false,
           item_count: 8,
@@ -135,6 +136,7 @@ describe("feed-management repository", () => {
           feed_url: "https://example.com/updated.xml",
           fetch_interval_minutes: 60,
           folder_id: null,
+          has_auth: true,
           id: "00000000-0000-0000-0000-000000000301",
           is_paused: true,
           last_error_at: null,
@@ -156,7 +158,9 @@ describe("feed-management repository", () => {
       folderId: null,
       isPaused: true,
       siteUrl: null,
-      title: null
+      title: null,
+      authUsername: "reader",
+      authPassword: "secret"
     });
 
     expect(queryMock).toHaveBeenCalledTimes(1);
@@ -172,13 +176,70 @@ describe("feed-management repository", () => {
       true,
       "https://example.com/updated.xml",
       true,
-      true
+      true,
+      false,
+      true,
+      "reader",
+      "secret"
     ]);
     expect(result).not.toBeNull();
+    expect(result?.hasAuth).toBe(true);
     expect(result?.isPaused).toBe(true);
     expect(result?.folderId).toBeNull();
     expect(result?.siteUrl).toBeNull();
     expect(result?.title).toBeNull();
+  });
+
+  it("clears stored feed credentials explicitly", async () => {
+    const queryMock = vi.fn().mockResolvedValue({
+      rows: [
+        {
+          consecutive_error_count: 0,
+          created_at: new Date("2026-04-25T00:00:00.000Z"),
+          favicon_url: null,
+          feed_url: "https://example.com/private.xml",
+          fetch_interval_minutes: 60,
+          folder_id: null,
+          has_auth: false,
+          id: "00000000-0000-0000-0000-000000000302",
+          is_paused: false,
+          last_error_at: null,
+          last_error_category: null,
+          last_error_message: null,
+          last_success_at: null,
+          site_url: null,
+          status: "active",
+          title: "Private"
+        }
+      ]
+    });
+    const pool = {
+      query: queryMock
+    } as unknown as Pool;
+
+    const result = await updateFeed(pool, "00000000-0000-0000-0000-000000000302", {
+      clearAuth: true
+    });
+
+    const [, values] = queryMock.mock.calls[0] as [string, unknown[]];
+    expect(values).toEqual([
+      "00000000-0000-0000-0000-000000000302",
+      false,
+      null,
+      false,
+      null,
+      false,
+      null,
+      false,
+      null,
+      false,
+      null,
+      true,
+      false,
+      null,
+      null
+    ]);
+    expect(result?.hasAuth).toBe(false);
   });
 
   it("returns null when retry target feed does not exist", async () => {

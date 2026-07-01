@@ -32,8 +32,12 @@ export async function runWorkerCycle(
     await recordFetchOutcome(pool, result.feed, result.outcome);
 
     const summaryItem: FetchCycleSummaryItem = {
+      consecutiveErrorCount:
+        result.outcome.status === "error" ? result.feed.consecutiveErrorCount + 1 : 0,
       feedId: result.feed.id,
       feedUrl: result.feed.feedUrl,
+      previousConsecutiveErrorCount: result.feed.consecutiveErrorCount,
+      previousStatus: result.feed.status,
       status: result.outcome.status
     };
     const resolvedFeedTitle = result.outcome.feedTitle ?? result.feed.title ?? null;
@@ -48,6 +52,14 @@ export async function runWorkerCycle(
 
     if (result.outcome.errorMessage) {
       summaryItem.errorMessage = result.outcome.errorMessage;
+    }
+
+    if (result.outcome.httpStatus !== null) {
+      summaryItem.httpStatus = result.outcome.httpStatus;
+    }
+
+    if (result.feed.lastErrorCategory) {
+      summaryItem.previousErrorCategory = result.feed.lastErrorCategory;
     }
 
     if (result.outcome.missingPublishedAtCount > 0) {

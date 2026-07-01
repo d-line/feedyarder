@@ -21,6 +21,7 @@ export interface FeedRecord {
   site_url: string | null;
   feed_url: string;
   favicon_url: string | null;
+  has_auth: boolean;
   status: string;
   is_paused: boolean;
   fetch_interval_minutes: number;
@@ -41,6 +42,7 @@ export interface FeedResponse {
   siteUrl: string | null;
   feedUrl: string;
   faviconUrl: string | null;
+  hasAuth: boolean;
   status: string;
   isPaused: boolean;
   fetchIntervalMinutes: number;
@@ -99,6 +101,7 @@ function mapFeed(row: FeedRecord): FeedResponse {
     feedUrl: row.feed_url,
     fetchIntervalMinutes: row.fetch_interval_minutes,
     folderId: row.folder_id,
+    hasAuth: row.has_auth,
     id: row.id,
     isPaused: row.is_paused,
     lastErrorAt: row.last_error_at?.toISOString() ?? null,
@@ -236,6 +239,7 @@ export async function listFeeds(
         feeds.site_url,
         feeds.feed_url,
         feeds.favicon_url,
+        (feeds.auth_username is not null and feeds.auth_password is not null) as has_auth,
         feeds.status,
         feeds.is_paused,
         feeds.fetch_interval_minutes,
@@ -262,6 +266,8 @@ export async function createFeed(
     folderId: string | null;
     siteUrl: string | null;
     title: string | null;
+    authUsername: string | null;
+    authPassword: string | null;
   }
 ): Promise<FeedResponse> {
   const result = await pool.query<FeedRecord>(
@@ -271,9 +277,11 @@ export async function createFeed(
         title,
         site_url,
         feed_url,
+        auth_username,
+        auth_password,
         next_fetch_at
       )
-      values ($1, $2, $3, $4, now())
+      values ($1, $2, $3, $4, $5, $6, now())
       returning
         id,
         folder_id,
@@ -281,6 +289,7 @@ export async function createFeed(
         site_url,
         feed_url,
         favicon_url,
+        (auth_username is not null and auth_password is not null) as has_auth,
         status,
         is_paused,
         fetch_interval_minutes,
@@ -291,7 +300,14 @@ export async function createFeed(
         last_error_message,
         created_at
     `,
-    [input.folderId, input.title, input.siteUrl, input.feedUrl]
+    [
+      input.folderId,
+      input.title,
+      input.siteUrl,
+      input.feedUrl,
+      input.authUsername,
+      input.authPassword
+    ]
   );
 
   const row = result.rows[0];
@@ -312,8 +328,14 @@ export async function updateFeed(
     isPaused?: boolean;
     siteUrl?: string | null;
     title?: string | null;
+    authUsername?: string;
+    authPassword?: string;
+    clearAuth?: boolean;
   }
 ): Promise<FeedResponse | null> {
+  const hasAuthCredentials =
+    input.authUsername !== undefined && input.authPassword !== undefined;
+
   const result = await pool.query<FeedRecord>(
     `
       update feeds
@@ -323,6 +345,16 @@ export async function updateFeed(
         site_url = case when $6 then $7 else site_url end,
         feed_url = case when $8 then $9 else feed_url end,
         is_paused = case when $10 then $11 else is_paused end,
+        auth_username = case
+          when $12 then null
+          when $13 then $14
+          else auth_username
+        end,
+        auth_password = case
+          when $12 then null
+          when $13 then $15
+          else auth_password
+        end,
         updated_at = now()
       where id = $1
       returning
@@ -332,6 +364,7 @@ export async function updateFeed(
         site_url,
         feed_url,
         favicon_url,
+        (auth_username is not null and auth_password is not null) as has_auth,
         status,
         is_paused,
         fetch_interval_minutes,
@@ -353,7 +386,11 @@ export async function updateFeed(
       input.feedUrl !== undefined,
       input.feedUrl ?? null,
       input.isPaused !== undefined,
-      input.isPaused ?? null
+      input.isPaused ?? null,
+      input.clearAuth === true,
+      hasAuthCredentials,
+      input.authUsername ?? null,
+      input.authPassword ?? null
     ]
   );
 
@@ -390,6 +427,7 @@ export async function retryFeedNow(pool: Pool, feedId: string): Promise<FeedResp
         site_url,
         feed_url,
         favicon_url,
+        (auth_username is not null and auth_password is not null) as has_auth,
         status,
         is_paused,
         fetch_interval_minutes,

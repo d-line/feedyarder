@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+
 import type { WorkerConfig } from "../config.js";
 
 import type { DueFeed } from "./types.js";
@@ -66,6 +68,14 @@ function buildConditionalHeaders(feed: DueFeed): HeadersInit {
 
   if (feed.lastModified) {
     headers["if-modified-since"] = feed.lastModified;
+  }
+
+  if (feed.authUsername && feed.authPassword) {
+    const encodedCredentials = Buffer.from(
+      `${feed.authUsername}:${feed.authPassword}`,
+      "utf8"
+    ).toString("base64");
+    headers.authorization = `Basic ${encodedCredentials}`;
   }
 
   return headers;

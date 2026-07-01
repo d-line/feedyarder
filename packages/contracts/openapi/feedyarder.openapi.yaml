@@ -711,6 +711,16 @@ components:
         feedUrl:
           type: string
           format: uri
+        authUsername:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Optional HTTP Basic auth username used only by the worker fetcher.
+        authPassword:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Optional HTTP Basic auth password. Write-only; never returned by feed responses.
         title:
           type: [string, "null"]
           maxLength: 256
@@ -759,6 +769,19 @@ components:
         feedUrl:
           type: string
           format: uri
+        authUsername:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Set or replace the HTTP Basic auth username; must be sent with authPassword.
+        authPassword:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Set or replace the HTTP Basic auth password; must be sent with authUsername.
+        clearAuth:
+          type: boolean
+          description: Remove stored HTTP Basic auth credentials for this feed.
         title:
           type: [string, "null"]
           maxLength: 256
@@ -780,6 +803,7 @@ components:
         - siteUrl
         - feedUrl
         - faviconUrl
+        - hasAuth
         - status
         - isPaused
         - fetchIntervalMinutes
@@ -807,6 +831,9 @@ components:
         faviconUrl:
           type: [string, "null"]
           format: uri
+        hasAuth:
+          type: boolean
+          description: True when HTTP Basic auth credentials are configured; credentials are never returned.
         status:
           type: string
         isPaused:

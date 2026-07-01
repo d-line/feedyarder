@@ -365,6 +365,8 @@ export function createApp(config: AppConfig) {
 
       return response.status(201).json(
         await createFeed(pool, {
+          authPassword: payload.authPassword ?? null,
+          authUsername: payload.authUsername ?? null,
           feedUrl: payload.feedUrl,
           folderId: payload.folderId ?? null,
           siteUrl: payload.siteUrl ?? null,
@@ -410,6 +412,18 @@ export function createApp(config: AppConfig) {
 
       if ("title" in payload) {
         updateInput.title = payload.title ?? null;
+      }
+
+      if (payload.clearAuth === true) {
+        updateInput.clearAuth = true;
+      }
+
+      if (
+        typeof payload.authUsername === "string" &&
+        typeof payload.authPassword === "string"
+      ) {
+        updateInput.authUsername = payload.authUsername;
+        updateInput.authPassword = payload.authPassword;
       }
 
       const feed = await updateFeed(pool, id, updateInput);

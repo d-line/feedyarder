@@ -47,6 +47,7 @@ describe("FeedsRoute", () => {
         feedUrl: "https://example.com/feed.xml",
         fetchIntervalMinutes: 60,
         folderId: "00000000-0000-0000-0000-000000000201",
+        hasAuth: true,
         id: "00000000-0000-0000-0000-000000000101",
         isPaused: false,
         itemCount: 8,
@@ -92,6 +93,7 @@ describe("FeedsRoute", () => {
     });
 
     expect(feedRow?.nextElementSibling?.classList.contains("feed-inline-editor")).toBe(true);
+    expect(feedRow?.nextElementSibling?.textContent).toContain("auth:configured");
     expect(
       (feedRow?.nextElementSibling?.querySelector('input[type="url"]') as HTMLInputElement)
         .value

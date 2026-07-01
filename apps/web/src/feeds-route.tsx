@@ -24,6 +24,8 @@ export function FeedsRoute() {
   const [feedUrl, setFeedUrl] = useState("");
   const [feedTitle, setFeedTitle] = useState("");
   const [siteUrl, setSiteUrl] = useState("");
+  const [authUsername, setAuthUsername] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
   const [discoveryUrl, setDiscoveryUrl] = useState("");
   const [discoveryResult, setDiscoveryResult] = useState<FeedDiscoveryResult | null>(null);
   const [folderId, setFolderId] = useState("");
@@ -32,6 +34,9 @@ export function FeedsRoute() {
   const [editFeedTitle, setEditFeedTitle] = useState("");
   const [editSiteUrl, setEditSiteUrl] = useState("");
   const [editFolderId, setEditFolderId] = useState("");
+  const [editAuthUsername, setEditAuthUsername] = useState("");
+  const [editAuthPassword, setEditAuthPassword] = useState("");
+  const [editClearAuth, setEditClearAuth] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [isSubmittingFeed, setIsSubmittingFeed] = useState(false);
   const [isDiscoveringFeeds, setIsDiscoveringFeeds] = useState(false);
@@ -55,6 +60,9 @@ export function FeedsRoute() {
     setEditFeedTitle(feed.title ?? "");
     setEditSiteUrl(feed.siteUrl ?? "");
     setEditFolderId(feed.folderId ?? "");
+    setEditAuthUsername("");
+    setEditAuthPassword("");
+    setEditClearAuth(false);
     setDeleteConfirmation("");
   }
 
@@ -64,6 +72,9 @@ export function FeedsRoute() {
     setEditFeedTitle("");
     setEditSiteUrl("");
     setEditFolderId("");
+    setEditAuthUsername("");
+    setEditAuthPassword("");
+    setEditClearAuth(false);
     setDeleteConfirmation("");
   }
 
@@ -93,6 +104,7 @@ export function FeedsRoute() {
 
     try {
       const createdFeed = await createFeed({
+        ...buildAuthInput(authUsername, authPassword),
         feedUrl,
         folderId: folderId || null,
         siteUrl: siteUrl || null,
@@ -109,6 +121,8 @@ export function FeedsRoute() {
       setFeedUrl("");
       setFeedTitle("");
       setSiteUrl("");
+      setAuthUsername("");
+      setAuthPassword("");
       setDiscoveryUrl("");
       setDiscoveryResult(null);
       setFolderId("");
@@ -185,6 +199,7 @@ export function FeedsRoute() {
     try {
       const updatedFeed = preserveFeedStatistics(
         await updateFeed(selectedFeed.id, {
+          ...buildEditAuthInput(editAuthUsername, editAuthPassword, editClearAuth),
           feedUrl: editFeedUrl.trim(),
           folderId: editFolderId || null,
           siteUrl: editSiteUrl.trim() || null,
@@ -314,6 +329,24 @@ export function FeedsRoute() {
               />
             </label>
             <label className="form-row">
+              <span>basic auth username</span>
+              <input
+                autoComplete="off"
+                onChange={(event) => setAuthUsername(event.target.value)}
+                type="text"
+                value={authUsername}
+              />
+            </label>
+            <label className="form-row">
+              <span>basic auth password</span>
+              <input
+                autoComplete="new-password"
+                onChange={(event) => setAuthPassword(event.target.value)}
+                type="password"
+                value={authPassword}
+              />
+            </label>
+            <label className="form-row">
               <span>folder</span>
               <select onChange={(event) => setFolderId(event.target.value)} value={folderId}>
                 <option value="">none</option>
@@ -398,6 +431,7 @@ export function FeedsRoute() {
                 >
                   <div className="feed-editor-meta">
                     <span>interval:{feed.fetchIntervalMinutes}m</span>
+                    <span>auth:{feed.hasAuth ? "configured" : "none"}</span>
                     <span>
                       last success:
                       {feed.lastSuccessAt ? formatTimestamp(feed.lastSuccessAt) : "never"}
@@ -444,6 +478,46 @@ export function FeedsRoute() {
                         onChange={(event) => setEditSiteUrl(event.target.value)}
                         type="url"
                         value={editSiteUrl}
+                      />
+                    </label>
+
+                    <label className="form-row">
+                      <span>new auth username</span>
+                      <input
+                        autoComplete="off"
+                        disabled={editClearAuth}
+                        onChange={(event) => setEditAuthUsername(event.target.value)}
+                        placeholder={feed.hasAuth ? "unchanged" : ""}
+                        type="text"
+                        value={editAuthUsername}
+                      />
+                    </label>
+
+                    <label className="form-row">
+                      <span>new auth password</span>
+                      <input
+                        autoComplete="new-password"
+                        disabled={editClearAuth}
+                        onChange={(event) => setEditAuthPassword(event.target.value)}
+                        placeholder={feed.hasAuth ? "unchanged" : ""}
+                        type="password"
+                        value={editAuthPassword}
+                      />
+                    </label>
+
+                    <label className="form-row form-row-checkbox">
+                      <span>clear basic auth</span>
+                      <input
+                        checked={editClearAuth}
+                        disabled={!feed.hasAuth}
+                        onChange={(event) => {
+                          setEditClearAuth(event.target.checked);
+                          if (event.target.checked) {
+                            setEditAuthUsername("");
+                            setEditAuthPassword("");
+                          }
+                        }}
+                        type="checkbox"
                       />
                     </label>
 
@@ -498,6 +572,32 @@ function preserveFeedStatistics(updatedFeed: Feed, previousFeed: Feed): Feed {
     itemCount: previousFeed.itemCount,
     readItemCount: previousFeed.readItemCount
   };
+}
+
+function buildAuthInput(
+  username: string,
+  password: string
+): { authUsername?: string; authPassword?: string } {
+  if (username.trim().length === 0 && password.length === 0) {
+    return {};
+  }
+
+  return {
+    authPassword: password,
+    authUsername: username.trim()
+  };
+}
+
+function buildEditAuthInput(
+  username: string,
+  password: string,
+  clearAuth: boolean
+): { authUsername?: string; authPassword?: string; clearAuth?: boolean } {
+  if (clearAuth) {
+    return { clearAuth: true };
+  }
+
+  return buildAuthInput(username, password);
 }
 
 function findFolderTitle(folders: Folder[], folderId: string | null): string {

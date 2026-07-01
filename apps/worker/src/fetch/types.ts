@@ -5,10 +5,15 @@ export interface DueFeed {
   id: string;
   feedUrl: string;
   title: string | null;
+  status: string;
   fetchIntervalMinutes: number;
   consecutiveErrorCount: number;
+  lastErrorCategory: FetchErrorCategory | null;
+  lastErrorMessage: string | null;
   etag: string | null;
   lastModified: string | null;
+  authUsername: string | null;
+  authPassword: string | null;
 }
 
 export interface FetchCycleSummaryItem {
@@ -16,9 +21,14 @@ export interface FetchCycleSummaryItem {
   feedUrl: string;
   feedTitle?: string;
   status: FetchStatus;
+  httpStatus?: number;
   errorCategory?: FetchErrorCategory;
   errorMessage?: string;
   missingPublishedAtCount?: number;
+  previousStatus?: string;
+  previousErrorCategory?: FetchErrorCategory;
+  previousConsecutiveErrorCount?: number;
+  consecutiveErrorCount?: number;
 }
 
 export interface NormalizedItem {

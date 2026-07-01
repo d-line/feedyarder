@@ -70,6 +70,7 @@ If the project direction changes, this file must be updated to reflect the new a
 ## Feed and Folder Model
 
 - A feed belongs to exactly one folder in v1.
+- Feeds may optionally store HTTP Basic authentication credentials for protected feed URLs; the worker should use those credentials when fetching the feed, while API responses should expose only whether credentials are configured.
 - Use a reasonable favicon extraction strategy in v1:
   - prefer feed-provided icon/image metadata when available
   - otherwise try common favicon paths and homepage icon links
@@ -140,18 +141,25 @@ If the project direction changes, this file must be updated to reflect the new a
 
 - Fetching should be highly intolerant to errors from an observability standpoint.
 - Telegram notifications go only to the project owner.
-- Notifications may be intentionally noisy; prioritize surfacing failures early over reducing alert volume.
-- Notifications should be sent every fetch cycle.
-- Failure details do not need aggressive deduplication or suppression.
+- Persist every fetch-cycle notification batch for observability, but keep Telegram notifications operator-actionable rather than noisy at large feed counts.
+- Telegram should be sent only when a fetch cycle has errors or missing `published_at` items.
+- Normal `success` and `not_modified` feed details should not be sent to Telegram.
+- Telegram alerting should be stateful:
+  - alert when a feed newly transitions into error
+  - alert when a previously failing feed recovers through `success` or `not_modified`
+  - alert for persistent failures only when consecutive failures hit thresholds such as 3, 10, or 25
+  - treat parse errors and HTTP 401/403 responses as high-signal first-failure alerts
+  - send a daily digest at most once every 24 hours with currently failing feeds, newly failing feeds, recovered feeds, top repeated errors, and missing `published_at` totals
+- Failure details do not need aggressive deduplication or suppression in stored batch payloads.
 - Primary alert categories the user cares about:
   - network errors
   - parsing errors
 - Repeated identical failures do not need deduplication inside the summaries.
 - Missing `published_at` should also be surfaced in summaries.
 - Telegram summary formatting should be operator-friendly:
-  - grouped by status/error category (for example `error/network`, `error/parse`, `not_modified`)
+  - grouped by actionable category (for example `error/network`, `error/parse`, `error/other`)
   - include feed title when available, fallback to feed URL
-  - cap detail lines per cycle and include a `+N more` tail when truncated
+  - cap actionable detail lines per cycle and include a `+N more actionable events omitted` tail when truncated
 
 ## API and Contract Strategy
 
