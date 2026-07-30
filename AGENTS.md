@@ -238,6 +238,21 @@ If the project direction changes, this file must be updated to reflect the new a
 - The feeds page should list each feed's story count and read percentage.
 - Feed editing should expand directly below the selected feed row rather than appearing above the list.
 
+## Similar Articles (Planned)
+
+- Add a post-v1 "Similar articles" feature based on article topic/content rather than feed membership or exact word overlap alone.
+- Use hybrid retrieval:
+  - local multilingual semantic embeddings for topic-level candidates
+  - PostgreSQL full-text retrieval for exact terms
+  - deterministic reranking, confidence filtering, near-duplicate suppression, and feed diversity
+- Treat similarity artifacts as versioned derived data outside immutable `items`.
+- Generate embeddings asynchronously in a dedicated similarity process from the existing worker app so similarity work cannot delay feed fetching or ingest.
+- Keep article text local during embedding generation.
+- Return no suggestions when confidence is low; do not fill the list with weak matches.
+- A similarity count represents the bounded qualified result set, not an exact count across the full corpus.
+- Detailed architecture is tracked in `docs/similar-articles-architecture.md`.
+- Implementation stories and delivery order are tracked in `docs/similar-articles-stories.md`.
+
 ## Working Rule
 
 - If the user changes a requirement, revises a decision, or explicitly accepts a new tradeoff, update this file before proceeding with substantial implementation that depends on that change.
