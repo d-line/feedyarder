@@ -103,6 +103,11 @@ import {
   resolveSubstackRootUrl
 } from "./backfill/substack.js";
 import {
+  fetchTedTalkDetailItem,
+  fetchTedTalksArchivePage,
+  isTedTalksHdFeed
+} from "./backfill/ted.js";
+import {
   fetchTwitEpisodeDetail,
   fetchTwitEpisodeListPage,
   fetchTwitRssOverrides,
@@ -142,6 +147,7 @@ const defaultNprRequestDelayMs = 500;
 const defaultPromodjRequestDelayMs = 500;
 const defaultSubstackRequestDelayMinMs = 5_000;
 const defaultSubstackRequestDelayMaxMs = 15_000;
+const defaultTedTalksRequestDelayMs = 500;
 const maxPages = 10_000;
 
 interface BackfillResult {
@@ -314,15 +320,17 @@ async function backfillFeed(
                           ? backfillNprFreshAirFeed(pool, feed, timeoutMs)
                           : isNprIndicatorFeed(feed)
                             ? backfillNprIndicatorFeed(pool, feed, timeoutMs)
-                          : isPromodjFeed(feed)
-                            ? backfillPromodjFeed(pool, feed, timeoutMs)
-                            : isTwitFeed(feed)
-                              ? backfillTwitFeed(pool, feed, timeoutMs)
-                              : isFlossWeeklyLibsynFeed(feed)
-                                ? backfillFlossWeeklyLibsynFeed(pool, feed, timeoutMs)
-                                : isEzraKleinFeed(feed)
-                                  ? runEzraKleinBackfill(pool, feed, { FETCH_TOTAL_TIMEOUT_MS: timeoutMs })
-                                  : backfillRutrackerFeed(pool, feed, timeoutMs, rutrackerStart);
+                            : isPromodjFeed(feed)
+                              ? backfillPromodjFeed(pool, feed, timeoutMs)
+                              : isTedTalksHdFeed(feed.feedUrl)
+                                ? backfillTedTalksFeed(pool, feed, timeoutMs)
+                                : isTwitFeed(feed)
+                                  ? backfillTwitFeed(pool, feed, timeoutMs)
+                                  : isFlossWeeklyLibsynFeed(feed)
+                                    ? backfillFlossWeeklyLibsynFeed(pool, feed, timeoutMs)
+                                    : isEzraKleinFeed(feed)
+                                      ? runEzraKleinBackfill(pool, feed, { FETCH_TOTAL_TIMEOUT_MS: timeoutMs })
+                                      : backfillRutrackerFeed(pool, feed, timeoutMs, rutrackerStart);
 }
 
 function logBackfillComplete(feed: FeedBackfillTarget, result: BackfillResult): void {
@@ -708,6 +716,72 @@ async function backfillSubstackFeed(
     insertedCount,
     pageCount,
     source: "substack"
+  };
+}
+
+async function backfillTedTalksFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  let discoveredCount = 0;
+  let insertedCount = 0;
+  let pageCount = 0;
+  let pageNumber = 0;
+
+  while (pageCount < maxPages) {
+    console.log(`Backfill crawling TED Talks archive page=${pageNumber + 1}`);
+
+    const page = await fetchTedTalksArchivePage(pageNumber, feed.id, timeoutMs);
+    pageCount += 1;
+    console.log(
+      `Backfill TED Talks archive parsed: page=${page.pageNumber + 1} items=${page.items.length} nbHits=${page.nbHits ?? "unknown"} nbPages=${page.nbPages ?? "unknown"} next=${page.hasNextPage ? page.pageNumber + 2 : "none"}`
+    );
+
+    if (page.items.length === 0) {
+      break;
+    }
+
+    const items: NormalizedItem[] = [];
+
+    for (const archiveItem of page.items) {
+      console.log(
+        `Backfill TED Talks detail fetching | sourceId=${readSourceId(archiveItem) ?? "unknown"} | url=${archiveItem.url ?? "null"}`
+      );
+
+      await sleep(defaultTedTalksRequestDelayMs);
+      const detailItem = await fetchTedTalkDetailItem(archiveItem, feed.id, timeoutMs);
+      const item = detailItem ?? archiveItem;
+
+      console.log(
+        `Backfill TED Talks item normalized | sourceId=${readSourceId(item) ?? "unknown"} | detailFetched=${detailItem !== null} | publishedAt=${item.publishedAt ?? "null"} | title=${item.title ?? "null"} | url=${item.url ?? "null"}`
+      );
+      items.push(item);
+    }
+
+    discoveredCount += items.length;
+
+    for (const result of await insertItemsWithResults(pool, feed.id, items)) {
+      console.log(formatInsertDebugLine(result.item, result.inserted));
+
+      if (result.inserted) {
+        insertedCount += 1;
+      }
+    }
+
+    if (!page.hasNextPage) {
+      break;
+    }
+
+    pageNumber += 1;
+    await sleep(defaultTedTalksRequestDelayMs);
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount,
+    source: "ted-talks"
   };
 }
 
@@ -1823,6 +1897,26 @@ function readSourceId(item: NormalizedItem): string | null {
     typeof promodjData.fileId === "string"
   ) {
     return promodjData.fileId;
+  }
+
+  const tedData = item.rawExtensionData.ted;
+
+  if (tedData && typeof tedData === "object") {
+    if (
+      "talkId" in tedData &&
+      typeof tedData.talkId === "string" &&
+      tedData.talkId.length > 0
+    ) {
+      return tedData.talkId;
+    }
+
+    if (
+      "objectId" in tedData &&
+      typeof tedData.objectId === "string" &&
+      tedData.objectId.length > 0
+    ) {
+      return tedData.objectId;
+    }
   }
 
   return item.guid?.replace(/^rutracker-topic:/, "") ?? null;
