@@ -7,7 +7,8 @@ import {
   fetchCurrentUser,
   getApiErrorMessage,
   listFolders,
-  listItems
+  listItems,
+  listSimilarItems
 } from "./api-client.js";
 
 type FetchMock = ReturnType<typeof vi.fn<typeof fetch>>;
@@ -58,6 +59,33 @@ describe("api-client", () => {
     expect(url.searchParams.get("read")).toBe("false");
     expect(url.searchParams.get("starred")).toBe("true");
     expect(initArg?.credentials).toBe("include");
+  });
+
+  it("loads similar items through the generated response schema", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        count: 0,
+        hasMore: false,
+        items: [],
+        status: "pending"
+      })
+    );
+
+    await expect(
+      listSimilarItems("00000000-0000-0000-0000-000000000101", {
+        limit: 5
+      })
+    ).resolves.toMatchObject({
+      count: 0,
+      status: "pending"
+    });
+
+    const [urlArg] = fetchMock.mock.calls[0] ?? [];
+    const url = new URL(String(urlArg));
+    expect(url.pathname).toBe(
+      "/items/00000000-0000-0000-0000-000000000101/similar"
+    );
+    expect(url.searchParams.get("limit")).toBe("5");
   });
 
   it("sends json body and content type for mutating requests", async () => {

@@ -9,6 +9,7 @@ describe("auth cookies", () => {
     API_PORT: 3001,
     DATABASE_URL: "postgres://localhost/feedyarder",
     NODE_ENV: "test" as const,
+    SIMILARITY_ENABLED: true,
     SESSION_COOKIE_NAME: "feedyarder_session",
     SESSION_COOKIE_SECURE: false,
     SESSION_MAX_AGE_DAYS: 30,

@@ -16,6 +16,10 @@ export const listItemsQuerySchema = z.object({
     .optional()
 });
 
+export const listSimilarItemsQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(20).default(5)
+});
+
 export const updateItemStateSchema = z
   .object({
     isRead: z.boolean().optional(),

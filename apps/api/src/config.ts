@@ -21,6 +21,16 @@ const envSchema = z.object({
   API_PORT: z.coerce.number().int().positive().default(3001),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  SIMILARITY_ENABLED: z.preprocess(
+    (value) => {
+      if (value === undefined || value === null || value === "") {
+        return undefined;
+      }
+
+      return String(value).toLowerCase();
+    },
+    booleanStringSchema.optional()
+  ),
   WEB_ORIGIN: z.string().url().default("http://localhost:3000"),
   SESSION_COOKIE_NAME: z.string().default("feedyarder_session"),
   SESSION_MAX_AGE_DAYS: z.coerce.number().int().positive().default(30),
@@ -37,7 +47,8 @@ const envSchema = z.object({
 }).transform((value) => ({
   ...value,
   SESSION_COOKIE_SECURE:
-    value.SESSION_COOKIE_SECURE ?? value.NODE_ENV === "production"
+    value.SESSION_COOKIE_SECURE ?? value.NODE_ENV === "production",
+  SIMILARITY_ENABLED: value.SIMILARITY_ENABLED ?? true
 }));
 
 export type AppConfig = z.infer<typeof envSchema>;

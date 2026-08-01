@@ -5,6 +5,7 @@ coverage
 .env
 .env.local
 .turbo
+.cache
 *.log
 
 apps/web/.vite

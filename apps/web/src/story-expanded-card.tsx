@@ -1,16 +1,23 @@
 import { type Item } from "@feedyarder/contracts";
 import moment from "moment";
 
+import { SimilarArticles } from "./similar-articles.js";
 import { StoryBody } from "./story-body.js";
 import { StoryMediaPlayer } from "./story-media-player.js";
 
 interface StoryExpandedCardProps {
   item: Item;
+  onSelectSimilar: (item: Item) => void;
   onToggleRead: (item: Item) => void;
   onToggleStar: (item: Item) => void;
 }
 
-export function StoryExpandedCard({ item, onToggleRead, onToggleStar }: StoryExpandedCardProps) {
+export function StoryExpandedCard({
+  item,
+  onSelectSimilar,
+  onToggleRead,
+  onToggleStar
+}: StoryExpandedCardProps) {
   return (
     <div className="story-expanded">
       <div className="story-meta">
@@ -23,6 +30,7 @@ export function StoryExpandedCard({ item, onToggleRead, onToggleStar }: StoryExp
         <StoryMediaPlayer media={item.media} title={item.title ?? item.feedTitle ?? "media item"} />
       ) : null}
       <StoryBody contentHtml={item.contentHtml} summaryText={item.summaryText} />
+      <SimilarArticles itemId={item.id} onSelectItem={onSelectSimilar} />
       <div className="story-actions">
         <button onClick={() => onToggleRead(item)} type="button">
           {item.isRead ? "mark unread" : "mark read"}

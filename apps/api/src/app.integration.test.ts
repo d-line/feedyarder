@@ -50,6 +50,7 @@ const testConfig: AppConfig = {
   SESSION_COOKIE_NAME: "feedyarder_session",
   SESSION_COOKIE_SECURE: false,
   SESSION_MAX_AGE_DAYS: 30,
+  SIMILARITY_ENABLED: true,
   WEB_ORIGIN: "http://localhost:3000"
 };
 
@@ -917,6 +918,187 @@ describe("API integration", () => {
     expect(invalidItemPath.response.status).toBe(400);
     expect(invalidItemPath.data.error.code).toBe("invalid_request");
   });
+
+  it("returns bounded hybrid similar items and feature availability states", async () => {
+    await setupAndLogin();
+    const pool = requireTestPool();
+    const feedOne = await createFeedForTest({
+      feedUrl: "https://example.com/similar-one.xml",
+      title: "Primary Feed"
+    });
+    const feedTwo = await createFeedForTest({
+      feedUrl: "https://example.com/similar-two.xml",
+      title: "Secondary Feed"
+    });
+    const sourceItemId = await insertItem(pool, {
+      author: null,
+      contentHtml: "<p>PostgreSQL vector indexes and HNSW search.</p>",
+      dedupeKey: "similar-source",
+      feedId: feedOne.id,
+      guid: "similar-source",
+      isRead: false,
+      isStarred: false,
+      publishedAt: "2026-07-01T00:00:00.000Z",
+      summaryText: "PostgreSQL vector indexes",
+      title: "PostgreSQL vector search",
+      url: "https://example.com/source"
+    });
+    const relatedItemId = await insertItem(pool, {
+      author: null,
+      contentHtml: "<p>Nearest-neighbor lookup with pgvector.</p>",
+      dedupeKey: "similar-related",
+      feedId: feedTwo.id,
+      guid: "similar-related",
+      isRead: true,
+      isStarred: false,
+      publishedAt: "2026-07-02T00:00:00.000Z",
+      summaryText: "PostgreSQL HNSW nearest-neighbor lookup",
+      title: "Fast nearest-neighbor queries with pgvector",
+      url: "https://example.com/related"
+    });
+    const pendingItemId = await insertItem(pool, {
+      author: null,
+      contentHtml: "<p>This item is still waiting for its embedding.</p>",
+      dedupeKey: "similar-pending",
+      feedId: feedTwo.id,
+      guid: "similar-pending",
+      isRead: false,
+      isStarred: false,
+      publishedAt: "2026-07-03T00:00:00.000Z",
+      summaryText: "Pending similarity feature",
+      title: "Pending item",
+      url: "https://example.com/pending"
+    });
+    const sourceVector = unitVector(0);
+    const relatedVector = unitVector(0, 0.05);
+
+    await pool.query(
+      `
+        insert into item_similarity_features (
+          item_id,
+          algorithm_version,
+          status,
+          input_hash,
+          plain_text_length,
+          lexical_terms,
+          search_document,
+          embedding
+        )
+        values
+          (
+            $1,
+            'similarity-v1',
+            'ready',
+            repeat('a', 64),
+            100,
+            array['postgresql', 'vector', 'hnsw'],
+            setweight(to_tsvector('simple', 'PostgreSQL vector search'), 'A'),
+            $3::halfvec
+          ),
+          (
+            $2,
+            'similarity-v1',
+            'ready',
+            repeat('b', 64),
+            100,
+            array['postgresql', 'pgvector', 'hnsw'],
+            setweight(
+              to_tsvector(
+                'simple',
+                'Fast nearest neighbor queries with PostgreSQL pgvector HNSW'
+              ),
+              'A'
+            ),
+            $4::halfvec
+          )
+      `,
+      [sourceItemId, relatedItemId, sourceVector, relatedVector]
+    );
+
+    const similar = await request<{
+      count: number;
+      hasMore: boolean;
+      items: Array<{ id: string; isRead: boolean }>;
+      status: string;
+    }>(`/items/${sourceItemId}/similar?limit=5`);
+
+    expect(similar.response.status).toBe(200);
+    expect(similar.data.status).toBe("ready");
+    expect(similar.data.count).toBe(1);
+    expect(similar.data.hasMore).toBe(false);
+    expect(similar.data.items).toEqual([
+      expect.objectContaining({
+        id: relatedItemId,
+        isRead: true
+      })
+    ]);
+
+    const pending = await request<{ count: number; status: string }>(
+      `/items/${pendingItemId}/similar`
+    );
+    expect(pending.response.status).toBe(200);
+    expect(pending.data).toMatchObject({
+      count: 0,
+      status: "pending"
+    });
+
+    await pool.query(
+      `
+        insert into item_similarity_features (
+          item_id,
+          algorithm_version,
+          status,
+          input_hash,
+          plain_text_length,
+          skip_reason
+        )
+        values (
+          $1,
+          'similarity-v1',
+          'skipped',
+          repeat('c', 64),
+          2,
+          'insufficient_text'
+        )
+      `,
+      [pendingItemId]
+    );
+    const unavailable = await request<{ count: number; status: string }>(
+      `/items/${pendingItemId}/similar`
+    );
+    expect(unavailable.response.status).toBe(200);
+    expect(unavailable.data).toMatchObject({
+      count: 0,
+      status: "unavailable"
+    });
+
+    const missing = await request<{ error: { code: string } }>(
+      "/items/00000000-0000-0000-0000-000000000999/similar"
+    );
+    expect(missing.response.status).toBe(404);
+    expect(missing.data.error.code).toBe("item_not_found");
+
+    const invalidLimit = await request<{ error: { code: string } }>(
+      `/items/${sourceItemId}/similar?limit=21`
+    );
+    expect(invalidLimit.response.status).toBe(400);
+    expect(invalidLimit.data.error.code).toBe("invalid_request");
+
+    const invalidItemId = await request<{ error: { code: string } }>(
+      "/items/not-a-uuid/similar"
+    );
+    expect(invalidItemId.response.status).toBe(400);
+    expect(invalidItemId.data.error.code).toBe("invalid_request");
+
+    const unauthenticated = await request<{ error: { code: string } }>(
+      `/items/${sourceItemId}/similar`,
+      {
+        includeCookie: false
+      }
+    );
+    expect(unauthenticated.response.status).toBe(401);
+    expect(unauthenticated.data.error.code).toBe("not_authenticated");
+  });
 });
 
 async function setupAndLogin(): Promise<void> {
@@ -1128,8 +1310,8 @@ async function insertItem(
     isRead: boolean;
     isStarred: boolean;
   }
-): Promise<void> {
-  await pool.query(
+): Promise<string> {
+  const result = await pool.query<{ id: string }>(
     `
       insert into items (
         feed_id,
@@ -1159,6 +1341,7 @@ async function insertItem(
         $10,
         $11
       )
+      returning id
     `,
     [
       input.feedId,
@@ -1174,6 +1357,25 @@ async function insertItem(
       input.isStarred
     ]
   );
+
+  const itemId = result.rows[0]?.id;
+
+  if (!itemId) {
+    throw new Error("Failed to insert integration test item.");
+  }
+
+  return itemId;
+}
+
+function unitVector(primaryIndex: number, secondaryValue = 0): string {
+  const values = Array.from({ length: 384 }, () => 0);
+  values[primaryIndex] = 1;
+
+  if (secondaryValue !== 0) {
+    values[1] = secondaryValue;
+  }
+
+  return `[${values.join(",")}]`;
 }
 
 function readSessionTokenFromCookie(): string {

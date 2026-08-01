@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17
+    image: pgvector/pgvector:0.8.2-pg17-bookworm
     container_name: feedyarder-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-feedyarder}
@@ -47,6 +47,7 @@ services:
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-feedyarder_session}
       SESSION_MAX_AGE_DAYS: ${SESSION_MAX_AGE_DAYS:-30}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      SIMILARITY_ENABLED: ${SIMILARITY_ENABLED:-true}
     ports:
       - "3001:3001"
     depends_on:
@@ -75,6 +76,29 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  similarity-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    container_name: feedyarder-similarity-worker
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-feedyarder}:${POSTGRES_PASSWORD:-feedyarder}@postgres:5432/${POSTGRES_DB:-feedyarder}
+      NODE_ENV: production
+      SIMILARITY_BATCH_SIZE: ${SIMILARITY_BATCH_SIZE:-8}
+      SIMILARITY_ENABLED: ${SIMILARITY_ENABLED:-true}
+      SIMILARITY_LEASE_MS: ${SIMILARITY_LEASE_MS:-900000}
+      SIMILARITY_ALLOW_REMOTE_MODELS: ${SIMILARITY_ALLOW_REMOTE_MODELS:-true}
+      SIMILARITY_MODEL_CACHE_DIR: /models
+      SIMILARITY_POLL_INTERVAL_MS: ${SIMILARITY_POLL_INTERVAL_MS:-10000}
+    command: ["node", "apps/worker/dist/similarity-worker.js"]
+    volumes:
+      - similarity_model_cache:/models
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   web:
     build:
       context: .
@@ -92,3 +116,4 @@ services:
 
 volumes:
   postgres_data:
+  similarity_model_cache:

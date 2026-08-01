@@ -10,7 +10,7 @@ export interface ItemListFilters {
   starred: boolean | null;
 }
 
-interface ItemRow {
+export interface ItemRow {
   id: string;
   feed_id: string;
   feed_title: string | null;
@@ -61,7 +61,7 @@ export interface ItemListResponse {
   nextCursor: string | null;
 }
 
-function mapItem(row: ItemRow): ItemResponse {
+export function mapItem(row: ItemRow): ItemResponse {
   const mediaDescription = readMediaDescription(row.raw_extension_data);
 
   return {

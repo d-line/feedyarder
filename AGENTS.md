@@ -238,7 +238,7 @@ If the project direction changes, this file must be updated to reflect the new a
 - The feeds page should list each feed's story count and read percentage.
 - Feed editing should expand directly below the selected feed row rather than appearing above the list.
 
-## Similar Articles (Planned)
+## Similar Articles (Implemented Baseline)
 
 - Add a post-v1 "Similar articles" feature based on article topic/content rather than feed membership or exact word overlap alone.
 - Use hybrid retrieval:
@@ -252,6 +252,10 @@ If the project direction changes, this file must be updated to reflect the new a
 - A similarity count represents the bounded qualified result set, not an exact count across the full corpus.
 - Detailed architecture is tracked in `docs/similar-articles-architecture.md`.
 - Implementation stories and delivery order are tracked in `docs/similar-articles-stories.md`.
+- The database migration, isolated similarity worker, backfill/status commands,
+  hybrid API endpoint, generated contract, and reader interaction are implemented.
+- Real-corpus relevance calibration, scale measurement, and production rollout
+  remain explicit gates before the ranking thresholds are considered final.
 
 ## Working Rule
 

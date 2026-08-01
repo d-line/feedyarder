@@ -555,6 +555,49 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /items/{id}/similar:
+    get:
+      operationId: listSimilarItems
+      summary: List bounded similar items for a source item
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 5
+      responses:
+        "200":
+          description: Similar item availability and bounded result list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimilarItemsResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Item not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /items/{id}/state:
     patch:
       operationId: updateItemState
@@ -1014,6 +1057,23 @@ components:
             $ref: "#/components/schemas/ItemResponse"
         nextCursor:
           type: [string, "null"]
+    SimilarItemsResponse:
+      type: object
+      additionalProperties: false
+      required: [status, count, hasMore, items]
+      properties:
+        status:
+          type: string
+          enum: [ready, pending, unavailable]
+        count:
+          type: integer
+          minimum: 0
+        hasMore:
+          type: boolean
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItemResponse"
     UpdateItemStateRequest:
       type: object
       additionalProperties: false

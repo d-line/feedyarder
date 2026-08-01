@@ -42,21 +42,21 @@ flowchart LR
 
 T-shirt sizes are relative complexity indicators, not time estimates.
 
-| Story | Outcome | Size | Depends on |
-| --- | --- | --- | --- |
-| SA-01 | Relevance corpus, evaluator, and baseline decision | L | none |
-| SA-02 | pgvector PostgreSQL and feature storage | M | SA-01 |
-| SA-03 | Deterministic similarity text and lexical features | M | SA-01 |
-| SA-04 | Durable job queue and queue operations | M | SA-02 |
-| SA-05 | Pinned local embedding runtime | M | SA-01 |
-| SA-06 | Isolated incremental similarity worker | L | SA-02–SA-05 |
-| SA-07 | Resumable historical backfill | M | SA-04, SA-06 |
-| SA-08 | Bounded semantic candidate retrieval | M | SA-02, SA-06 |
-| SA-09 | Lexical retrieval and hybrid reranking | L | SA-03, SA-08 |
-| SA-10 | Authenticated OpenAPI endpoint | M | SA-09 |
-| SA-11 | Quality, recall, storage, and latency gate | L | SA-07, SA-10 |
-| SA-12 | Similar-articles reader interaction | L | SA-10, SA-11 |
-| SA-13 | Controlled production rollout and full backfill | M | SA-11, SA-12 |
+| Story | Outcome | Size | Status | Depends on |
+| --- | --- | --- | --- | --- |
+| SA-01 | Relevance corpus, evaluator, and baseline decision | L | Pending owner-reviewed corpus | none |
+| SA-02 | pgvector PostgreSQL and feature storage | M | Implemented | SA-01 |
+| SA-03 | Deterministic similarity text and lexical features | M | Implemented | SA-01 |
+| SA-04 | Durable job queue and queue operations | M | Implemented | SA-02 |
+| SA-05 | Pinned local embedding runtime | M | Implemented and smoke-tested | SA-01 |
+| SA-06 | Isolated incremental similarity worker | L | Implemented | SA-02–SA-05 |
+| SA-07 | Resumable historical backfill | M | Implemented | SA-04, SA-06 |
+| SA-08 | Bounded semantic candidate retrieval | M | Implemented | SA-02, SA-06 |
+| SA-09 | Lexical retrieval and hybrid reranking | L | Implemented; calibration pending | SA-03, SA-08 |
+| SA-10 | Authenticated OpenAPI endpoint | M | Implemented | SA-09 |
+| SA-11 | Quality, recall, storage, and latency gate | L | Pending production corpus | SA-07, SA-10 |
+| SA-12 | Similar-articles reader interaction | L | Implemented | SA-10, SA-11 |
+| SA-13 | Controlled production rollout and full backfill | M | Pending deployment | SA-11, SA-12 |
 
 ## SA-01 — Build the Relevance Evaluator and Select the Baseline
 

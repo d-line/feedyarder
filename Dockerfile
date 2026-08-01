@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:24-alpine AS deps
+FROM node:24-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY apps/api/package.json apps/api/package.json
@@ -15,7 +15,7 @@ WORKDIR /app
 COPY . .
 RUN npm run build
 
-FROM node:24-alpine AS api
+FROM node:24-bookworm-slim AS api
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build-all /app/package.json /app/package-lock.json /app/
@@ -28,7 +28,7 @@ COPY --from=build-all /app/packages/db/migrations /app/packages/db/migrations
 EXPOSE 3001
 CMD ["node", "apps/api/dist/index.js"]
 
-FROM node:24-alpine AS worker
+FROM node:24-bookworm-slim AS worker
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build-all /app/package.json /app/package-lock.json /app/

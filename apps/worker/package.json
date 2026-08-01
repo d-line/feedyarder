@@ -8,15 +8,20 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts",
+    "dev:similarity": "tsx watch src/similarity-worker.ts",
     "lint": "eslint \"src/**/*.ts\"",
+    "similarity:enqueue": "tsx src/similarity-operations.ts enqueue",
+    "similarity:status": "tsx src/similarity-operations.ts status",
     "test": "vitest run --exclude src/runner.integration.test.ts",
     "test:integration": "vitest run src/runner.integration.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@feedyarder/contracts": "0.1.0",
+    "@huggingface/transformers": "4.2.0",
     "dotenv": "^16.4.7",
     "fast-xml-parser": "^4.5.3",
+    "parse5": "8.0.1",
     "pg": "^8.14.1",
     "zod": "^3.24.0"
   },
