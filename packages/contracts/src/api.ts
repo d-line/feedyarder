@@ -34,3 +34,6 @@ export type Item = z.infer<typeof itemResponseSchema>;
 
 export const itemListResponseSchema = schemas.ItemListResponse;
 export type ItemListResponse = z.infer<typeof itemListResponseSchema>;
+
+export const similarItemsResponseSchema = schemas.SimilarItemsResponse;
+export type SimilarItemsResponse = z.infer<typeof similarItemsResponseSchema>;

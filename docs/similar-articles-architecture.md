@@ -1,6 +1,6 @@
 # Similar Articles Architecture
 
-Status: proposed implementation design  
+Status: implemented baseline; corpus calibration and production rollout pending
 Feature phase: post-v1  
 Companion backlog: [Similar Articles Stories](./similar-articles-stories.md)
 
@@ -21,7 +21,7 @@ The embedding model runs in a dedicated process built from `apps/worker`. It doe
 not run in the feed-fetch cycle or the API process. Article content remains on the
 Feedyarder host.
 
-The proposed baseline is:
+The implemented baseline is:
 
 - Model family: `multilingual-e5-small`
 - Runtime: Transformers.js with pinned ONNX model artifacts
@@ -31,10 +31,9 @@ The proposed baseline is:
 - Approximate index: HNSW
 - PostgreSQL: version 17 with a pinned pgvector-enabled image
 
-Story SA-01 must validate the baseline model against real Feedyarder articles before
-the database migration fixes the vector dimension. If that evaluation rejects the
-baseline, this document and `AGENTS.md` must be updated before implementation
-continues.
+The model contract is pinned in source and has passed local and containerized
+runtime smoke tests. SA-01 and SA-11 still require owner-reviewed real-corpus
+evaluation before the thresholds should be treated as calibrated for production.
 
 ## 2. Product Meaning
 
@@ -96,8 +95,9 @@ The existing system shapes the implementation:
   `tsvector`.
 - The public API is OpenAPI-first and generated Zod schemas validate responses at
   the web boundary.
-- The deployed PostgreSQL image is currently plain `postgres:17`; pgvector is not
-  installed.
+- Deployments created before this feature may still use plain `postgres:17`; they
+  must be backed up and switched to the pinned pgvector-compatible PostgreSQL 17
+  image before migration `0004` can run.
 - The feed worker has strict operational responsibilities and must not be delayed by
   model inference.
 
@@ -203,6 +203,7 @@ The database provides a durable, leased work queue:
 create table item_similarity_jobs (
   item_id uuid primary key references items (id) on delete cascade,
   target_algorithm_version text not null,
+  priority smallint not null default 0,
   attempt_count integer not null default 0,
   available_at timestamptz not null default now(),
   lease_expires_at timestamptz,
@@ -216,8 +217,8 @@ create table item_similarity_jobs (
 Indexes support claiming available work and reporting queue age:
 
 ```sql
-create index item_similarity_jobs_available_idx
-  on item_similarity_jobs (available_at, created_at, item_id);
+create index item_similarity_jobs_claim_idx
+  on item_similarity_jobs (priority desc, available_at, created_at, item_id);
 
 create index item_similarity_jobs_lease_idx
   on item_similarity_jobs (lease_expires_at)
@@ -227,6 +228,10 @@ create index item_similarity_jobs_lease_idx
 An `AFTER INSERT` trigger on `items` inserts a `similarity-v1` job with
 `ON CONFLICT DO NOTHING`. This makes queueing independent of whether the item came
 from a normal feed fetch or any targeted backfill.
+
+Trigger-created incremental jobs use a higher queue priority than historical
+backfill jobs. This prevents a large archive enqueue from delaying newly ingested
+articles.
 
 Successful and permanently skipped work deletes the job. Transient failures leave
 the job with a later `available_at`. Therefore the job table contains only
@@ -434,9 +439,11 @@ baseScore =
   + lexicalWeight / (rrfConstant + lexicalRank)
 ```
 
-A missing rank contributes zero. Initial weights, the RRF constant, and the
-semantic cutoff come from SA-01 and SA-09 evaluation and are committed as part of
-`similarity-v1`.
+A missing rank contributes zero. The implemented conservative starting guardrails
+require cosine similarity of at least `0.80` for hybrid consideration and `0.86`
+for a semantic-only result. Lexical-only results require a rank of at least `0.05`.
+These constants passed a small model smoke comparison but remain subject to the
+owner-reviewed SA-01 and SA-11 corpus evaluation before production rollout.
 
 The base score is adjusted with bounded rules:
 

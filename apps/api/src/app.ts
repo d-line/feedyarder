@@ -39,9 +39,11 @@ import {
   updateFeedRequestSchema
 } from "./feed-management/schemas.js";
 import { listItems, updateItemState } from "./item-management/repository.js";
+import { listSimilarItems } from "./item-management/similarity-repository.js";
 import {
   idPathParamsSchema as itemManagementIdPathParamsSchema,
   listItemsQuerySchema,
+  listSimilarItemsQuerySchema,
   updateItemStateSchema
 } from "./item-management/schemas.js";
 import { importFeedsFromOpml, listFeedsForOpmlExport } from "./opml/repository.js";
@@ -520,6 +522,31 @@ export function createApp(config: AppConfig) {
           starred: query.starred ?? null
         })
       );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/items/:id/similar", async (request, response, next) => {
+    try {
+      if (!(await requireUser(request, response))) {
+        return;
+      }
+
+      const { id } = itemManagementIdPathParamsSchema.parse(request.params);
+      const query = listSimilarItemsQuerySchema.parse(request.query);
+      const result = await listSimilarItems(
+        pool,
+        id,
+        query.limit,
+        config.SIMILARITY_ENABLED
+      );
+
+      if (!result) {
+        return sendError(response, 404, "item_not_found", "Item was not found.");
+      }
+
+      return response.json(result);
     } catch (error) {
       next(error);
     }

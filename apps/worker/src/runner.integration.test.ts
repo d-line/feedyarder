@@ -8,6 +8,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 import { ParseError } from "./fetch/errors.js";
 import type { WorkerConfig } from "./config.js";
+import type { SimilarityWorkerConfig } from "./similarity/config.js";
+import {
+  claimSimilarityJobs,
+  completeReadySimilarityJob,
+  enqueueMissingSimilarityJobs
+} from "./similarity/repository.js";
+import { runSimilarityCycle } from "./similarity/runner.js";
 
 const { fetchFeedDocumentMock, parseFeedDocumentMock } = vi.hoisted(() => ({
   fetchFeedDocumentMock: vi.fn(),
@@ -92,6 +99,17 @@ const workerConfig: WorkerConfig = {
   WORKER_BATCH_SIZE: 10,
   WORKER_CONCURRENCY: 2,
   WORKER_POLL_INTERVAL_MS: 60_000
+};
+
+const similarityWorkerConfig: SimilarityWorkerConfig = {
+  DATABASE_URL: testUrl.toString(),
+  NODE_ENV: "test",
+  SIMILARITY_ALLOW_REMOTE_MODELS: false,
+  SIMILARITY_BATCH_SIZE: 10,
+  SIMILARITY_ENABLED: true,
+  SIMILARITY_LEASE_MS: 15 * 60_000,
+  SIMILARITY_MODEL_CACHE_DIR: "/tmp/feedyarder-similarity-test-models",
+  SIMILARITY_POLL_INTERVAL_MS: 60_000
 };
 
 let adminPool: Pool | null = null;
@@ -591,6 +609,226 @@ describe("runWorkerCycle integration", () => {
   });
 });
 
+describe("similarity worker integration", () => {
+  it("processes ready and insufficient-text jobs without loading the model", async () => {
+    const pool = requireTestPool();
+    const feed = await insertFeedForTest(pool, {
+      consecutiveErrorCount: 0,
+      etag: null,
+      feedUrl: "https://example.com/similarity-feed.xml",
+      fetchIntervalMinutes: 60,
+      isPaused: false,
+      lastModified: null,
+      nextFetchAt: "2026-04-25T00:00:00.000Z",
+      status: "active",
+      title: "Similarity Feed"
+    });
+    const readyItemId = await insertSimilarityItemForTest(pool, feed.id, {
+      contentHtml:
+        "<p>Semantic embeddings connect related reporting across languages.</p>",
+      dedupeKey: "similarity-ready",
+      guid: "similarity-ready",
+      summaryText: "A practical guide to multilingual topic retrieval.",
+      title: "Building related article search"
+    });
+    const skippedItemId = await insertSimilarityItemForTest(pool, feed.id, {
+      contentHtml: null,
+      dedupeKey: "similarity-skipped",
+      guid: "similarity-skipped",
+      summaryText: null,
+      title: "Hi"
+    });
+    const embed = vi.fn(async (texts: string[]) =>
+      texts.map(() => unitEmbedding())
+    );
+
+    const result = await runSimilarityCycle(pool, similarityWorkerConfig, {
+      embed
+    });
+
+    expect(result).toEqual({
+      claimedCount: 2,
+      failedCount: 0,
+      readyCount: 1,
+      skippedCount: 1
+    });
+    expect(embed).toHaveBeenCalledTimes(1);
+    expect(embed.mock.calls[0]?.[0]).toHaveLength(1);
+
+    const features = await pool.query<{
+      embedding_dimensions: number | null;
+      item_id: string;
+      status: string;
+    }>(
+      `
+        select
+          item_id,
+          status,
+          vector_dims(embedding) as embedding_dimensions
+        from item_similarity_features
+        order by item_id
+      `
+    );
+    expect(features.rows).toEqual(
+      expect.arrayContaining([
+        {
+          embedding_dimensions: 384,
+          item_id: readyItemId,
+          status: "ready"
+        },
+        {
+          embedding_dimensions: null,
+          item_id: skippedItemId,
+          status: "skipped"
+        }
+      ])
+    );
+
+    const remainingJobs = await pool.query<{ count: number }>(
+      "select count(*)::integer as count from item_similarity_jobs"
+    );
+    expect(remainingJobs.rows[0]?.count).toBe(0);
+  });
+
+  it("prevents duplicate claims and rejects completion from an expired lease", async () => {
+    const pool = requireTestPool();
+    const feed = await insertFeedForTest(pool, {
+      consecutiveErrorCount: 0,
+      etag: null,
+      feedUrl: "https://example.com/similarity-lease-feed.xml",
+      fetchIntervalMinutes: 60,
+      isPaused: false,
+      lastModified: null,
+      nextFetchAt: "2026-04-25T00:00:00.000Z",
+      status: "active",
+      title: "Similarity Lease Feed"
+    });
+    const itemId = await insertSimilarityItemForTest(pool, feed.id, {
+      contentHtml: "<p>A durable queue lease should have one current owner.</p>",
+      dedupeKey: "similarity-lease",
+      guid: "similarity-lease",
+      summaryText: "Testing concurrent claims.",
+      title: "Similarity queue leases"
+    });
+    const [firstClaim, concurrentClaim] = await Promise.all([
+      claimSimilarityJobs(pool, 1, 60_000),
+      claimSimilarityJobs(pool, 1, 60_000)
+    ]);
+    const claimedJobs = [...firstClaim, ...concurrentClaim];
+
+    expect(claimedJobs).toHaveLength(1);
+    const staleJob = claimedJobs[0];
+    expect(staleJob?.itemId).toBe(itemId);
+
+    await pool.query(
+      `
+        update item_similarity_jobs
+        set lease_expires_at = now() - interval '1 second'
+        where item_id = $1
+      `,
+      [itemId]
+    );
+
+    const replacementJobs = await claimSimilarityJobs(pool, 1, 60_000);
+    const replacementJob = replacementJobs[0];
+
+    expect(replacementJob).toBeDefined();
+    expect(replacementJob?.leaseToken).not.toBe(staleJob?.leaseToken);
+
+    const staleCompleted = await completeReadySimilarityJob(
+      pool,
+      staleJob!,
+      readySimilarityFeature()
+    );
+    expect(staleCompleted).toBe(false);
+
+    const replacementCompleted = await completeReadySimilarityJob(
+      pool,
+      replacementJob!,
+      readySimilarityFeature()
+    );
+    expect(replacementCompleted).toBe(true);
+  });
+
+  it("backfills missing jobs newest-first and remains idempotent", async () => {
+    const pool = requireTestPool();
+    const feed = await insertFeedForTest(pool, {
+      consecutiveErrorCount: 0,
+      etag: null,
+      feedUrl: "https://example.com/similarity-backfill-feed.xml",
+      fetchIntervalMinutes: 60,
+      isPaused: false,
+      lastModified: null,
+      nextFetchAt: "2026-04-25T00:00:00.000Z",
+      status: "active",
+      title: "Similarity Backfill Feed"
+    });
+    const olderItemId = await insertSimilarityItemForTest(pool, feed.id, {
+      contentHtml: "<p>An older item awaiting a historical backfill.</p>",
+      dedupeKey: "similarity-backfill-older",
+      guid: "similarity-backfill-older",
+      publishedAt: "2025-01-01T00:00:00.000Z",
+      summaryText: "Older article.",
+      title: "Older backfill item"
+    });
+    const newerItemId = await insertSimilarityItemForTest(pool, feed.id, {
+      contentHtml: "<p>A newer item should be enqueued before older history.</p>",
+      dedupeKey: "similarity-backfill-newer",
+      guid: "similarity-backfill-newer",
+      publishedAt: "2026-01-01T00:00:00.000Z",
+      summaryText: "Newer article.",
+      title: "Newer backfill item"
+    });
+
+    await pool.query("delete from item_similarity_jobs");
+
+    expect(
+      await enqueueMissingSimilarityJobs(pool, {
+        limit: 1,
+        newerThan: null
+      })
+    ).toBe(1);
+
+    const firstJob = await pool.query<{ item_id: string }>(
+      "select item_id from item_similarity_jobs"
+    );
+    expect(firstJob.rows[0]?.item_id).toBe(newerItemId);
+
+    expect(
+      await enqueueMissingSimilarityJobs(pool, {
+        limit: 10,
+        newerThan: null
+      })
+    ).toBe(1);
+    expect(
+      await enqueueMissingSimilarityJobs(pool, {
+        limit: 10,
+        newerThan: null
+      })
+    ).toBe(0);
+
+    const jobIds = await pool.query<{ item_id: string }>(
+      "select item_id from item_similarity_jobs order by item_id"
+    );
+    expect(jobIds.rows.map((row) => row.item_id).sort()).toEqual(
+      [olderItemId, newerItemId].sort()
+    );
+
+    const incrementalItemId = await insertSimilarityItemForTest(pool, feed.id, {
+      contentHtml:
+        "<p>A newly ingested item must not wait behind historical work.</p>",
+      dedupeKey: "similarity-incremental",
+      guid: "similarity-incremental",
+      publishedAt: "2026-02-01T00:00:00.000Z",
+      summaryText: "Incremental article.",
+      title: "New incremental item"
+    });
+    const nextJobs = await claimSimilarityJobs(pool, 1, 60_000);
+
+    expect(nextJobs[0]?.itemId).toBe(incrementalItemId);
+  });
+});
+
 async function ensureDatabaseExists(adminPool: Pool, databaseName: string): Promise<void> {
   const existsResult = await adminPool.query<{ exists: boolean }>(
     `
@@ -687,5 +925,67 @@ async function insertFeedForTest(
   return {
     id: row.id,
     feedUrl: row.feed_url
+  };
+}
+
+async function insertSimilarityItemForTest(
+  pool: Pool,
+  feedId: string,
+  input: {
+    contentHtml: string | null;
+    dedupeKey: string;
+    guid: string;
+    publishedAt?: string;
+    summaryText: string | null;
+    title: string;
+  }
+): Promise<string> {
+  const result = await pool.query<{ id: string }>(
+    `
+      insert into items (
+        feed_id,
+        guid,
+        dedupe_key,
+        title,
+        summary_text,
+        content_html,
+        published_at,
+        raw_extension_data
+      )
+      values ($1, $2, $3, $4, $5, $6, $7::timestamptz, '{}'::jsonb)
+      returning id
+    `,
+    [
+      feedId,
+      input.guid,
+      input.dedupeKey,
+      input.title,
+      input.summaryText,
+      input.contentHtml,
+      input.publishedAt ?? null
+    ]
+  );
+  const itemId = result.rows[0]?.id;
+
+  if (!itemId) {
+    throw new Error("Item insert failed for similarity integration test.");
+  }
+
+  return itemId;
+}
+
+function unitEmbedding(): number[] {
+  return Array.from({ length: 384 }, (_, index) => (index === 0 ? 1 : 0));
+}
+
+function readySimilarityFeature() {
+  return {
+    bodyText: "A durable queue lease should have one current owner.",
+    embedding: unitEmbedding(),
+    inputHash: "a".repeat(64),
+    lexicalTerms: ["durable", "queue", "lease"],
+    plainTextLength: 85,
+    summaryText: "Testing concurrent claims.",
+    titleText: "Similarity queue leases"
   };
 }

@@ -40,6 +40,12 @@ type ItemListResponse = {
   items: Array<ItemResponse>;
   nextCursor: string | null;
 };
+type SimilarItemsResponse = {
+  status: "ready" | "pending" | "unavailable";
+  count: number;
+  hasMore: boolean;
+  items: Array<ItemResponse>;
+};
 
 const HealthResponse = z
   .object({ ok: z.boolean(), service: z.literal("api") })
@@ -202,6 +208,14 @@ const ItemListResponse: z.ZodType<ItemListResponse> = z
     nextCursor: z.union([z.string(), z.null()]),
   })
   .strict();
+const SimilarItemsResponse: z.ZodType<SimilarItemsResponse> = z
+  .object({
+    status: z.enum(["ready", "pending", "unavailable"]),
+    count: z.number().int().gte(0),
+    hasMore: z.boolean(),
+    items: z.array(ItemResponse),
+  })
+  .strict();
 const UpdateItemStateRequest = z
   .object({ isRead: z.boolean(), isStarred: z.boolean() })
   .partial()
@@ -229,5 +243,6 @@ export const schemas = {
   ItemMediaResponse,
   ItemResponse,
   ItemListResponse,
+  SimilarItemsResponse,
   UpdateItemStateRequest,
 };

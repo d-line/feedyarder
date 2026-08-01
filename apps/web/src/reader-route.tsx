@@ -331,6 +331,35 @@ export function ReaderRoute() {
     });
   }
 
+  function handleSelectSimilar(sourceItemId: string, similarItem: Item): void {
+    setItems((current) => {
+      const existingIndex = current.findIndex(
+        (item) => item.id === similarItem.id
+      );
+
+      if (existingIndex >= 0) {
+        return current;
+      }
+
+      const sourceIndex = current.findIndex((item) => item.id === sourceItemId);
+      const insertIndex = sourceIndex >= 0 ? sourceIndex + 1 : current.length;
+
+      return [
+        ...current.slice(0, insertIndex),
+        similarItem,
+        ...current.slice(insertIndex),
+      ];
+    });
+    setActiveItemId(similarItem.id);
+    setExpandedItemId(similarItem.id);
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        scrollItemToTop(similarItem.id);
+      });
+    });
+  }
+
   return (
     <section className="screen-content">
       <header className="section-header">
@@ -500,6 +529,9 @@ export function ReaderRoute() {
               {isExpanded ? (
                 <StoryExpandedCard
                   item={item}
+                  onSelectSimilar={(similarItem) =>
+                    handleSelectSimilar(item.id, similarItem)
+                  }
                   onToggleRead={(targetItem) =>
                     void handleToggleRead(targetItem)
                   }
@@ -547,7 +579,13 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   }
 
   const tagName = target.tagName.toLowerCase();
-  return tagName === "input" || tagName === "textarea" || tagName === "select";
+  return (
+    tagName === "a" ||
+    tagName === "button" ||
+    tagName === "input" ||
+    tagName === "select" ||
+    tagName === "textarea"
+  );
 }
 
 function formatRelativeTimestamp(value: string): string {

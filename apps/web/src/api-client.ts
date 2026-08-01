@@ -10,6 +10,7 @@ import {
   itemResponseSchema,
   opmlImportResponseSchema,
   setupStatusResponseSchema,
+  similarItemsResponseSchema,
   userResponseSchema,
   type ErrorResponse,
   type Feed,
@@ -19,6 +20,7 @@ import {
   type Item,
   type ItemListResponse,
   type OpmlImportResponse,
+  type SimilarItemsResponse,
   type User
 } from "@feedyarder/contracts";
 
@@ -274,6 +276,27 @@ export async function updateItemState(
     body: JSON.stringify(input),
     method: "PATCH",
     schema: itemResponseSchema
+  });
+}
+
+export async function listSimilarItems(
+  itemId: string,
+  input: {
+    limit?: number;
+    signal?: AbortSignal;
+  } = {}
+): Promise<SimilarItemsResponse> {
+  const params = new URLSearchParams();
+
+  if (input.limit !== undefined) {
+    params.set("limit", String(input.limit));
+  }
+
+  const query = params.size > 0 ? `?${params.toString()}` : "";
+
+  return apiRequest(`/items/${itemId}/similar${query}`, {
+    schema: similarItemsResponseSchema,
+    ...(input.signal ? { signal: input.signal } : {})
   });
 }
 
