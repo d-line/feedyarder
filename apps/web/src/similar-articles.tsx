@@ -101,6 +101,9 @@ export function SimilarArticles({
       <div className="similar-articles-list">
         {response.items.map((item) => (
           <button
+            aria-label={`${item.isRead ? "Read" : "Unread"}: ${
+              item.title ?? "untitled item"
+            } from ${item.feedTitle ?? "unknown feed"}`}
             className={
               item.isRead
                 ? "similar-article similar-article-read"
@@ -110,14 +113,8 @@ export function SimilarArticles({
             onClick={() => onSelectItem(item)}
             type="button"
           >
-            <span
-              className={
-                item.isRead
-                  ? "similar-article-state similar-article-state-read"
-                  : "similar-article-state similar-article-state-unread"
-              }
-            >
-              {item.isRead ? "read" : "unread"}
+            <span aria-hidden="true" className="similar-article-marker">
+              &gt;
             </span>
             <span className="similar-article-feed">
               {item.feedTitle ?? "unknown-feed"}

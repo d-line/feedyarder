@@ -462,7 +462,7 @@ button:disabled {
 
 .similar-article {
   display: grid;
-  grid-template-columns: 6ch minmax(8rem, 18rem) minmax(12rem, 1fr) minmax(6rem, 9rem);
+  grid-template-columns: 0.75rem minmax(8rem, 18rem) minmax(12rem, 1fr) minmax(6rem, 9rem);
   align-items: center;
   gap: 0.75rem;
   width: 100%;
@@ -483,12 +483,12 @@ button:disabled {
   white-space: nowrap;
 }
 
-.similar-article-state-unread {
+.similar-article-marker {
   color: var(--accent);
-  font-weight: 700;
 }
 
-.similar-article-state-read {
+.similar-article-read .similar-article-marker,
+.similar-article-read .similar-article-title {
   color: var(--muted);
 }
 
@@ -776,11 +776,11 @@ button:disabled {
   }
 
   .similar-article {
-    grid-template-columns: 6ch minmax(0, 1fr) auto;
+    grid-template-columns: 0.75rem minmax(0, 1fr) auto;
     gap: 0.35rem 0.6rem;
   }
 
-  .similar-article-state {
+  .similar-article-marker {
     grid-row: 1 / span 2;
   }
 

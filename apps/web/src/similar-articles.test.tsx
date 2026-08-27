@@ -87,13 +87,13 @@ describe("SimilarArticles", () => {
     expect(container.textContent).not.toContain("similar (0)");
   });
 
-  it("labels similar articles as read or unread", async () => {
+  it("applies read-state color classes without visible status labels", async () => {
     const unreadItem = buildItem();
     const readItem = {
       ...buildItem(),
       id: "00000000-0000-0000-0000-000000000202",
       isRead: true,
-      title: "Previously read article"
+      title: "Previously opened article"
     };
     apiMocks.listSimilarItems.mockResolvedValue({
       count: 2,
@@ -115,13 +115,10 @@ describe("SimilarArticles", () => {
     const rows = container.querySelectorAll(".similar-article");
 
     expect(rows[0]?.classList.contains("similar-article-unread")).toBe(true);
-    expect(rows[0]?.querySelector(".similar-article-state")?.textContent).toBe(
-      "unread"
-    );
+    expect(rows[0]?.getAttribute("aria-label")).toContain("Unread:");
     expect(rows[1]?.classList.contains("similar-article-read")).toBe(true);
-    expect(rows[1]?.querySelector(".similar-article-state")?.textContent).toBe(
-      "read"
-    );
+    expect(rows[1]?.getAttribute("aria-label")).toContain("Read:");
+    expect(container.querySelector(".similar-article-state")).toBeNull();
   });
 });
 
