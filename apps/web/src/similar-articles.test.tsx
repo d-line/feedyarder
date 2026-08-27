@@ -86,6 +86,43 @@ describe("SimilarArticles", () => {
     expect(container.textContent).toContain("similar:indexing...");
     expect(container.textContent).not.toContain("similar (0)");
   });
+
+  it("labels similar articles as read or unread", async () => {
+    const unreadItem = buildItem();
+    const readItem = {
+      ...buildItem(),
+      id: "00000000-0000-0000-0000-000000000202",
+      isRead: true,
+      title: "Previously read article"
+    };
+    apiMocks.listSimilarItems.mockResolvedValue({
+      count: 2,
+      hasMore: false,
+      items: [unreadItem, readItem],
+      status: "ready"
+    });
+
+    await act(async () => {
+      root.render(
+        <SimilarArticles
+          itemId="00000000-0000-0000-0000-000000000103"
+          onSelectItem={vi.fn()}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    const rows = container.querySelectorAll(".similar-article");
+
+    expect(rows[0]?.classList.contains("similar-article-unread")).toBe(true);
+    expect(rows[0]?.querySelector(".similar-article-state")?.textContent).toBe(
+      "unread"
+    );
+    expect(rows[1]?.classList.contains("similar-article-read")).toBe(true);
+    expect(rows[1]?.querySelector(".similar-article-state")?.textContent).toBe(
+      "read"
+    );
+  });
 });
 
 function buildItem() {

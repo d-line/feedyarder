@@ -130,7 +130,7 @@ export async function recordFetchOutcome(
           last_error_message = case when $3 = 'error' then $5 else null end,
           etag = coalesce($6, etag),
           last_modified = coalesce($7, last_modified),
-          title = coalesce($8, title),
+          title = coalesce(title, $8),
           site_url = coalesce($9, site_url),
           favicon_url = coalesce($10, favicon_url),
           status = case

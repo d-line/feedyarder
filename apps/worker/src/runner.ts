@@ -40,7 +40,7 @@ export async function runWorkerCycle(
       previousStatus: result.feed.status,
       status: result.outcome.status
     };
-    const resolvedFeedTitle = result.outcome.feedTitle ?? result.feed.title ?? null;
+    const resolvedFeedTitle = result.feed.title ?? result.outcome.feedTitle ?? null;
 
     if (resolvedFeedTitle) {
       summaryItem.feedTitle = resolvedFeedTitle;

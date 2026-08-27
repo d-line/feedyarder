@@ -101,12 +101,24 @@ export function SimilarArticles({
       <div className="similar-articles-list">
         {response.items.map((item) => (
           <button
-            className="similar-article"
+            className={
+              item.isRead
+                ? "similar-article similar-article-read"
+                : "similar-article similar-article-unread"
+            }
             key={item.id}
             onClick={() => onSelectItem(item)}
             type="button"
           >
-            <span className="similar-article-marker">&gt;</span>
+            <span
+              className={
+                item.isRead
+                  ? "similar-article-state similar-article-state-read"
+                  : "similar-article-state similar-article-state-unread"
+              }
+            >
+              {item.isRead ? "read" : "unread"}
+            </span>
             <span className="similar-article-feed">
               {item.feedTitle ?? "unknown-feed"}
             </span>

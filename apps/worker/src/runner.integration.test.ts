@@ -271,7 +271,7 @@ describe("runWorkerCycle integration", () => {
     expect(successState?.status).toBe("active");
     expect(successState?.fetch_interval_minutes).toBe(90);
     expect(successState?.consecutive_error_count).toBe(0);
-    expect(successState?.title).toBe("Parsed Feed Title");
+    expect(successState?.title).toBe("Success Feed");
     expect(successState?.site_url).toBe("https://example.com");
     expect(successState?.favicon_url).toBe("https://example.com/favicon.ico");
     expect(successState?.etag).toBe(`etag-new-${successFeed.id}`);
@@ -336,12 +336,20 @@ describe("runWorkerCycle integration", () => {
     expect(Array.isArray(payload)).toBe(true);
     const payloadItems = payload as Array<{
       feedId: string;
+      feedTitle?: string;
       status: string;
       errorCategory?: string;
       missingPublishedAtCount?: number;
     }>;
     expect(payloadItems).toHaveLength(2);
-    expect(payloadItems.some((item) => item.feedId === successFeed.id && item.status === "success")).toBe(true);
+    expect(
+      payloadItems.some(
+        (item) =>
+          item.feedId === successFeed.id &&
+          item.feedTitle === "Success Feed" &&
+          item.status === "success"
+      )
+    ).toBe(true);
     expect(
       payloadItems.some(
         (item) =>
@@ -482,6 +490,51 @@ describe("runWorkerCycle integration", () => {
     expect(payload).toHaveLength(1);
     expect(payload[0]?.feedId).toBe(notModifiedFeed.id);
     expect(payload[0]?.status).toBe("not_modified");
+  });
+
+  it("fills an untitled feed from parsed metadata", async () => {
+    const pool = requireTestPool();
+
+    const untitledFeed = await insertFeedForTest(pool, {
+      consecutiveErrorCount: 0,
+      etag: null,
+      feedUrl: "https://example.com/feed-untitled.xml",
+      fetchIntervalMinutes: 60,
+      isPaused: false,
+      lastModified: null,
+      nextFetchAt: "2026-04-25T00:00:00.000Z",
+      status: "active",
+      title: null
+    });
+
+    fetchFeedDocumentMock.mockResolvedValue({
+      body: "<rss />",
+      etag: null,
+      httpStatus: 200,
+      lastModified: null,
+      status: "success" as const
+    });
+
+    parseFeedDocumentMock.mockReturnValue({
+      faviconUrl: null,
+      items: [],
+      missingPublishedAtCount: 0,
+      siteUrl: null,
+      title: "Parsed Title"
+    });
+
+    await runWorkerCycle(pool, workerConfig);
+
+    const result = await pool.query<{ title: string | null }>(
+      `
+        select title
+        from feeds
+        where id = $1
+      `,
+      [untitledFeed.id]
+    );
+
+    expect(result.rows[0]?.title).toBe("Parsed Title");
   });
 
   it("records network errors with backoff and preserves existing metadata", async () => {
@@ -876,7 +929,7 @@ function requireTestPool(): Pool {
 async function insertFeedForTest(
   pool: Pool,
   input: {
-    title: string;
+    title: string | null;
     feedUrl: string;
     status: string;
     isPaused: boolean;

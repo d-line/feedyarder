@@ -250,6 +250,7 @@ If the project direction changes, this file must be updated to reflect the new a
 - Keep article text local during embedding generation.
 - Return no suggestions when confidence is low; do not fill the list with weak matches.
 - A similarity count represents the bounded qualified result set, not an exact count across the full corpus.
+- Similar article rows must show an explicit read or unread indicator from the current item state.
 - Detailed architecture is tracked in `docs/similar-articles-architecture.md`.
 - Implementation stories and delivery order are tracked in `docs/similar-articles-stories.md`.
 - The database migration, isolated similarity worker, backfill/status commands,
