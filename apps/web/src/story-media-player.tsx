@@ -13,7 +13,14 @@ export function StoryMediaPlayer({ media, title }: StoryMediaPlayerProps) {
   }
 
   return (
-    <section className="story-media" aria-label={`${media.kind} media`}>
+    <section
+      className={
+        media.kind === "youtube"
+          ? "story-media story-media-video"
+          : "story-media"
+      }
+      aria-label={`${media.kind} media`}
+    >
       <div className="story-media-header">
         <span>{media.kind}</span>
         {media.durationSeconds !== null ? <span>{formatDuration(media.durationSeconds)}</span> : null}

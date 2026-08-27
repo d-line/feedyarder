@@ -385,6 +385,11 @@ button:disabled {
   background: rgba(5, 10, 8, 0.45);
 }
 
+.story-media-video {
+  width: 100%;
+  max-width: none;
+}
+
 .story-media-header {
   display: flex;
   justify-content: space-between;
