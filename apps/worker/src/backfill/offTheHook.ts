@@ -5,6 +5,7 @@ import type { NormalizedItem } from "../fetch/types.js";
 
 type HtmlNode = DefaultTreeAdapterMap["node"];
 type HtmlElement = DefaultTreeAdapterMap["element"];
+type HtmlParent = DefaultTreeAdapterMap["parentNode"];
 
 export interface OffTheHookArchiveMonth {
   title: string;
@@ -13,7 +14,6 @@ export interface OffTheHookArchiveMonth {
 
 export interface OffTheHookAudioFile {
   bitrateKbps: number | null;
-  part: string | null;
   url: string;
 }
 
@@ -118,7 +118,7 @@ export function parseOffTheHookMonthPage(
     const fragment = parseFragment(pageHtml.slice(markerEnd, nextMarkerStart));
     const parents = buildParentMap(fragment);
     const segmentNodes = fragment.childNodes;
-    const audioFiles = collectAudioFiles(segmentNodes, parents, pageUrl, parsedDate.dateKey);
+    const audioFiles = collectAudioFiles(segmentNodes, parents, pageUrl);
     const selectedAudio = pickHighestQualityAudio(audioFiles);
 
     if (!selectedAudio) {
@@ -188,34 +188,70 @@ function readDescriptionNodes(segmentNodes: HtmlNode[]): HtmlNode[] {
 
 function collectAudioFiles(
   segmentNodes: HtmlNode[],
-  parents: Map<HtmlNode, HtmlElement>,
-  pageUrl: string,
-  dateKey: string
+  parents: Map<HtmlNode, HtmlParent>,
+  pageUrl: string
 ): OffTheHookAudioFile[] {
   const audioFiles = new Map<string, OffTheHookAudioFile>();
+  const elements = segmentNodes.flatMap((node) => findElements(node, () => true));
+  const downloadIndex = elements.findIndex(isDownloadHeading);
 
-  for (const node of segmentNodes) {
-    for (const link of findElements(node, (element) => element.tagName === "a")) {
-      const href = getAttribute(link, "href");
-      const url = href ? resolveUrl(href, pageUrl) : null;
-      const identity = url ? readAudioIdentity(url) : null;
+  if (downloadIndex < 0) {
+    return [];
+  }
 
-      if (!url || !identity || identity.dateKey !== dateKey) {
-        continue;
-      }
+  const overtimeIndex = elements.findIndex(
+    (element, index) => index > downloadIndex && isOvertimeHeading(element)
+  );
+  const endIndex = overtimeIndex < 0 ? elements.length : overtimeIndex;
 
-      const bitrateKbps =
-        identity.filenameBitrateKbps ?? readNearbyBitrateKbps(link, parents);
+  for (let index = downloadIndex + 1; index < endIndex; index += 1) {
+    const link = elements[index];
 
-      audioFiles.set(url.toString(), {
-        bitrateKbps,
-        part: identity.part,
-        url: url.toString()
-      });
+    if (!link || link.tagName !== "a") {
+      continue;
     }
+
+    const href = getAttribute(link, "href");
+    const url = href ? resolveUrl(href, pageUrl) : null;
+
+    if (!url || !isMp3Url(url)) {
+      continue;
+    }
+
+    const bitrateKbps = readNearbyBitrateKbps(link, parents);
+
+    if (bitrateKbps === null) {
+      continue;
+    }
+
+    audioFiles.set(url.toString(), {
+      bitrateKbps,
+      url: url.toString()
+    });
   }
 
   return Array.from(audioFiles.values());
+}
+
+function isDownloadHeading(element: HtmlElement): boolean {
+  return (
+    (element.tagName === "font" || element.tagName === "strong") &&
+    normalizeWhitespace(textContent(element)).toLowerCase() === "download it now!"
+  );
+}
+
+function isOvertimeHeading(element: HtmlElement): boolean {
+  return (
+    (element.tagName === "font" || element.tagName === "b") &&
+    normalizeWhitespace(textContent(element)).toLowerCase() === "off the hook overtime"
+  );
+}
+
+function isMp3Url(url: URL): boolean {
+  return (
+    (url.protocol === "http:" || url.protocol === "https:") &&
+    url.pathname.toLowerCase().endsWith(".mp3")
+  );
 }
 
 function pickHighestQualityAudio(
@@ -237,7 +273,7 @@ function pickHighestQualityAudio(
 
 function readNearbyBitrateKbps(
   link: HtmlElement,
-  parents: Map<HtmlNode, HtmlElement>
+  parents: Map<HtmlNode, HtmlParent>
 ): number | null {
   const parent = parents.get(link);
 
@@ -267,30 +303,6 @@ function readNearbyBitrateKbps(
   const value = match?.[1] ? Number(match[1]) : Number.NaN;
 
   return Number.isSafeInteger(value) && value >= 0 ? value : null;
-}
-
-function readAudioIdentity(url: URL): {
-  dateKey: string;
-  filenameBitrateKbps: number | null;
-  part: string | null;
-} | null {
-  const filename = url.pathname.split("/").at(-1) ?? "";
-  const match = filename.match(/^off_the_hook__(\d{8})([a-z])?(?:-(\d+))?\.mp3$/i);
-
-  if (!match?.[1]) {
-    return null;
-  }
-
-  const filenameBitrateKbps = match[3] ? Number(match[3]) : null;
-
-  return {
-    dateKey: match[1],
-    filenameBitrateKbps:
-      filenameBitrateKbps !== null && Number.isSafeInteger(filenameBitrateKbps)
-        ? filenameBitrateKbps
-        : null,
-    part: match[2]?.toLowerCase() ?? null
-  };
 }
 
 function parseEpisodeDate(
@@ -396,8 +408,8 @@ function isOffTheHookMonthUrl(url: URL): boolean {
   );
 }
 
-function buildParentMap(node: HtmlNode): Map<HtmlNode, HtmlElement> {
-  const parents = new Map<HtmlNode, HtmlElement>();
+function buildParentMap(node: HtmlNode): Map<HtmlNode, HtmlParent> {
+  const parents = new Map<HtmlNode, HtmlParent>();
 
   function visit(current: HtmlNode): void {
     if (!("childNodes" in current)) {
@@ -405,9 +417,7 @@ function buildParentMap(node: HtmlNode): Map<HtmlNode, HtmlElement> {
     }
 
     for (const child of current.childNodes) {
-      if ("tagName" in current) {
-        parents.set(child, current);
-      }
+      parents.set(child, current as HtmlParent);
 
       visit(child);
     }

@@ -62,6 +62,7 @@ describe("Off The Hook backfill parser", () => {
           <p><font face="Comic Sans MS" size="+1">January 8</font><br>
           <a href="../mp3files/2025/off_the_hook__20250108.mp3">Download</a><a href="../plsfiles/2025/off_the_hook__20250108.pls">Stream</a> 16k mp3<br>
           <a href="../mp3files/2025/off_the_hook__20250108-128.mp3">Download</a><a href="../plsfiles/2025/off_the_hook__20250108-128.pls">Stream</a> 128k mp3<br>
+          <a href="../mp3files/2025/full-interview.mp3">Download the full interview</a><br>
           <p><font>Off The Hook Overtime</font><br>
           <a href="../mp3files/2025/off_the_hook_overtime__20250108.mp3">Download</a> 16k mp3<br>
           <a href="../mp3files/2025/off_the_hook_overtime__20250108-128.mp3">Download</a> 128k mp3<br>
@@ -132,16 +133,51 @@ describe("Off The Hook backfill parser", () => {
       })
     );
     const metadata = page.items[0]?.rawExtensionData.offTheHook as {
-      audioFiles: Array<{ bitrateKbps: number; part: string }>;
+      audioFiles: Array<{ bitrateKbps: number; url: string }>;
       selectedAudioUrl: string;
     };
     expect(metadata.audioFiles).toEqual([
-      expect.objectContaining({ bitrateKbps: 16, part: "a" }),
-      expect.objectContaining({ bitrateKbps: 128, part: "a" }),
-      expect.objectContaining({ bitrateKbps: 16, part: "b" }),
-      expect.objectContaining({ bitrateKbps: 128, part: "b" })
+      expect.objectContaining({ bitrateKbps: 16, url: expect.stringContaining("19881007a.mp3") }),
+      expect.objectContaining({ bitrateKbps: 128, url: expect.stringContaining("19881007a-128.mp3") }),
+      expect.objectContaining({ bitrateKbps: 16, url: expect.stringContaining("19881007b.mp3") }),
+      expect.objectContaining({ bitrateKbps: 128, url: expect.stringContaining("19881007b-128.mp3") })
     ]);
     expect(metadata.selectedAudioUrl).toContain("off_the_hook__19881007a-128.mp3");
+  });
+
+  it("reads the March 1989 media links without a filename convention", () => {
+    const page = parseOffTheHookMonthPage(
+      `
+        <font face="Comic Sans MS" size="+1">- 03 / 13 / 89 -</font>
+        <p>This Monday special was entitled "News of the World."</font>
+        <p><font face="Comic Sans MS" size="+1"><strong>Download It Now!</strong></font>
+        <p><font face="Comic Sans MS" size="+1">March 13</font><br>
+        <a href="../mp3files/1989/monday-special-low.mp3">Download</a> 16k mp3<br>
+        <a href="../mp3files/1989/monday-special-best.mp3">Download</a> 128k mp3<br>
+      `,
+      "https://www.2600.com/offthehook/1989/0389.html",
+      "feed-1"
+    );
+
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toEqual(
+      expect.objectContaining({
+        guid: "oth19890313-hq",
+        publishedAt: "1989-03-13T00:00:00.000Z",
+        summaryText: "This Monday special was entitled \"News of the World.\""
+      })
+    );
+    expect(page.items[0]?.rawExtensionData.enclosure).toEqual(
+      expect.objectContaining({
+        "@_url":
+          "https://www.2600.com/offthehook/mp3files/1989/monday-special-best.mp3"
+      })
+    );
+    expect(page.items[0]?.rawExtensionData.offTheHook).toEqual(
+      expect.objectContaining({
+        bitrateKbps: 128
+      })
+    );
   });
 
   it("matches only the targeted RSS feed", () => {
