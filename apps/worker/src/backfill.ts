@@ -60,6 +60,12 @@ import {
   resolveNprIndicatorPodcastUrl
 } from "./backfill/nprIndicator.js";
 import {
+  fetchOffTheHookArchiveMonths,
+  fetchOffTheHookMonthPage,
+  isOffTheHookFeed,
+  resolveOffTheHookArchiveUrl
+} from "./backfill/offTheHook.js";
+import {
   fetchPromodjGroupPage,
   fetchPromodjItemPage,
   fetchPromodjMusicSections,
@@ -144,6 +150,7 @@ const defaultLiquorRequestDelayMinMs = 1_000;
 const defaultLiquorRequestDelayMaxMs = 3_000;
 const defaultFlibustaRequestDelayMs = 500;
 const defaultNprRequestDelayMs = 500;
+const defaultOffTheHookRequestDelayMs = 500;
 const defaultPromodjRequestDelayMs = 500;
 const defaultSubstackRequestDelayMinMs = 5_000;
 const defaultSubstackRequestDelayMaxMs = 15_000;
@@ -320,17 +327,19 @@ async function backfillFeed(
                           ? backfillNprFreshAirFeed(pool, feed, timeoutMs)
                           : isNprIndicatorFeed(feed)
                             ? backfillNprIndicatorFeed(pool, feed, timeoutMs)
-                            : isPromodjFeed(feed)
-                              ? backfillPromodjFeed(pool, feed, timeoutMs)
-                              : isTedTalksHdFeed(feed.feedUrl)
-                                ? backfillTedTalksFeed(pool, feed, timeoutMs)
-                                : isTwitFeed(feed)
-                                  ? backfillTwitFeed(pool, feed, timeoutMs)
-                                  : isFlossWeeklyLibsynFeed(feed)
-                                    ? backfillFlossWeeklyLibsynFeed(pool, feed, timeoutMs)
-                                    : isEzraKleinFeed(feed)
-                                      ? runEzraKleinBackfill(pool, feed, { FETCH_TOTAL_TIMEOUT_MS: timeoutMs })
-                                      : backfillRutrackerFeed(pool, feed, timeoutMs, rutrackerStart);
+                            : isOffTheHookBackfillFeed(feed)
+                              ? backfillOffTheHookFeed(pool, feed, timeoutMs)
+                              : isPromodjFeed(feed)
+                                ? backfillPromodjFeed(pool, feed, timeoutMs)
+                                : isTedTalksHdFeed(feed.feedUrl)
+                                  ? backfillTedTalksFeed(pool, feed, timeoutMs)
+                                  : isTwitFeed(feed)
+                                    ? backfillTwitFeed(pool, feed, timeoutMs)
+                                    : isFlossWeeklyLibsynFeed(feed)
+                                      ? backfillFlossWeeklyLibsynFeed(pool, feed, timeoutMs)
+                                      : isEzraKleinFeed(feed)
+                                        ? runEzraKleinBackfill(pool, feed, { FETCH_TOTAL_TIMEOUT_MS: timeoutMs })
+                                        : backfillRutrackerFeed(pool, feed, timeoutMs, rutrackerStart);
 }
 
 function logBackfillComplete(feed: FeedBackfillTarget, result: BackfillResult): void {
@@ -1571,6 +1580,63 @@ async function backfillNprIndicatorFeed(
   };
 }
 
+async function backfillOffTheHookFeed(
+  pool: Pool,
+  feed: FeedBackfillTarget,
+  timeoutMs: number
+): Promise<{ discoveredCount: number; insertedCount: number; pageCount: number; source: string }> {
+  const months = await fetchOffTheHookArchiveMonths(timeoutMs);
+
+  if (months.length === 0) {
+    throw new Error(
+      `Off The Hook archive did not expose any monthly pages: ${resolveOffTheHookArchiveUrl()}`
+    );
+  }
+
+  const seenPageUrls = new Set<string>();
+  let discoveredCount = 0;
+  let insertedCount = 0;
+
+  console.log(
+    `Backfill Off The Hook archive months discovered: count=${months.length} archiveUrl=${resolveOffTheHookArchiveUrl()}`
+  );
+
+  for (const month of months) {
+    if (seenPageUrls.size >= maxPages || seenPageUrls.has(month.url)) {
+      continue;
+    }
+
+    seenPageUrls.add(month.url);
+    console.log(`Backfill crawling Off The Hook month=${month.title} pageUrl=${month.url}`);
+
+    const page = await fetchOffTheHookMonthPage(month.url, feed.id, timeoutMs);
+    console.log(
+      `Backfill Off The Hook month parsed: pageUrl=${page.pageUrl} items=${page.items.length}`
+    );
+
+    discoveredCount += page.items.length;
+
+    for (const result of await insertItemsWithResults(pool, feed.id, page.items)) {
+      console.log(formatInsertDebugLine(result.item, result.inserted));
+
+      if (result.inserted) {
+        insertedCount += 1;
+      }
+    }
+
+    if (seenPageUrls.size < months.length) {
+      await sleep(defaultOffTheHookRequestDelayMs);
+    }
+  }
+
+  return {
+    discoveredCount,
+    insertedCount,
+    pageCount: seenPageUrls.size,
+    source: "off-the-hook"
+  };
+}
+
 async function backfillPromodjFeed(
   pool: Pool,
   feed: FeedBackfillTarget,
@@ -2454,6 +2520,12 @@ function isNprIndicatorFeed(feed: FeedBackfillTarget): boolean {
 
     return isNprIndicatorUrl(candidate);
   });
+}
+
+function isOffTheHookBackfillFeed(feed: FeedBackfillTarget): boolean {
+  return [feed.siteUrl, feed.feedUrl].some(
+    (candidate) => candidate !== null && isOffTheHookFeed(candidate)
+  );
 }
 
 function isPromodjFeed(feed: FeedBackfillTarget): boolean {
