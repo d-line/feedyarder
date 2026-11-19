@@ -410,15 +410,19 @@ distance removes candidates that are too weak before reranking.
 
 ### 10.2 Lexical candidates
 
-The API converts the source's validated `lexical_terms` to an OR `tsquery`. It then:
+For multi-term sources, the API searches for phrases made from neighboring
+entries in `lexical_terms` and for individual entries that PostgreSQL parses as
+compound phrases. A single-term source searches for that term. The query then:
 
 - searches the GIN-indexed similarity document
 - excludes the source item
 - requires the active algorithm version
-- ranks with `ts_rank_cd`
+- ranks with `ts_rank_cd` using the OR query over all source terms
 - returns at most 150 candidates
 
-Lexical retrieval is skipped when the source has no useful terms.
+Lexical retrieval is skipped when the source has no useful terms. If the lexical
+statement reaches its one-second PostgreSQL timeout or exhausts POSIX shared memory,
+the API logs the failure and applies the semantic-only confidence threshold.
 
 ### 10.3 Candidate boundaries
 

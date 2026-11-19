@@ -244,12 +244,14 @@ If the project direction changes, this file must be updated to reflect the new a
 - Add a post-v1 "Similar articles" feature based on article topic/content rather than feed membership or exact word overlap alone.
 - Use hybrid retrieval:
   - local multilingual semantic embeddings for topic-level candidates
-  - PostgreSQL full-text retrieval for exact terms
+  - PostgreSQL full-text retrieval using adjacent source terms and compound terms as phrases, with single-term matching when the source has just one term
   - deterministic reranking, confidence filtering, near-duplicate suppression, and feed diversity
 - Treat similarity artifacts as versioned derived data outside immutable `items`.
 - Generate embeddings asynchronously in a dedicated similarity process from the existing worker app so similarity work cannot delay feed fetching or ingest.
 - Keep article text local during embedding generation.
 - Return no suggestions when confidence is low; do not fill the list with weak matches.
+- Score lexical candidates using all source terms. If the one-second PostgreSQL lexical query budget expires, log the cancellation and return strong semantic matches.
+- If lexical retrieval runs out of POSIX shared memory, log the failure and return strong semantic matches.
 - A similarity count represents the bounded qualified result set, not an exact count across the full corpus.
 - Similar article rows should use color to distinguish read and unread states without visible status labels.
 - Detailed architecture is tracked in `docs/similar-articles-architecture.md`.

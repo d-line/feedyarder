@@ -9,6 +9,7 @@ import {
 const SIMILARITY_ALGORITHM_VERSION = "similarity-v1";
 const SEMANTIC_CANDIDATE_LIMIT = 150;
 const LEXICAL_CANDIDATE_LIMIT = 150;
+const LEXICAL_QUERY_TIMEOUT_MS = 1_000;
 const MINIMUM_SEMANTIC_SIMILARITY = 0.8;
 const STRONG_SEMANTIC_SIMILARITY = 0.86;
 const MINIMUM_LEXICAL_RANK = 0.05;
@@ -28,6 +29,7 @@ export interface SimilarItemsResponse {
 
 interface SourceFeatureRow {
   algorithm_version: string | null;
+  compound_lexical_terms: string[];
   embedding: string | null;
   feature_status: "ready" | "skipped" | null;
   feed_id: string;
@@ -108,6 +110,11 @@ async function readSourceFeature(
         features.algorithm_version,
         features.status as feature_status,
         features.lexical_terms,
+        array(
+          select term
+          from unnest(features.lexical_terms) as source_terms(term)
+          where numnode(to_tsquery('simple', quote_literal(term))) > 1
+        ) as compound_lexical_terms,
         features.embedding::text as embedding
       from items
       left join item_similarity_features as features
@@ -180,47 +187,96 @@ async function listLexicalCandidates(
     return [];
   }
 
-  const tsquery = terms.map(quoteTsqueryLexeme).join(" | ");
-  const result = await pool.query<CandidateRow>(
-    `
-      select
-        items.id,
-        items.feed_id,
-        feeds.title as feed_title,
-        items.title,
-        items.url,
-        items.author,
-        items.summary_text,
-        items.content_html,
-        items.published_at,
-        items.raw_extension_data,
-        items.is_read,
-        items.is_starred,
-        items.created_at,
-        ts_rank_cd(
-          features.search_document,
-          to_tsquery('simple', $1),
-          32
-        ) as lexical_rank
-      from item_similarity_features as features
-      join items on items.id = features.item_id
-      join feeds on feeds.id = items.feed_id
-      where features.status = 'ready'
-        and features.algorithm_version = $2
-        and features.item_id <> $3
-        and features.search_document @@ to_tsquery('simple', $1)
-      order by lexical_rank desc, items.published_at desc nulls last, items.id desc
-      limit $4
-    `,
-    [
-      tsquery,
-      SIMILARITY_ALGORITHM_VERSION,
-      source.item_id,
-      LEXICAL_CANDIDATE_LIMIT
-    ]
+  const quotedTerms = terms.map(quoteTsqueryLexeme);
+  const rankingQuery = quotedTerms.join(" | ");
+  const adjacentPhrases = quotedTerms.slice(1).map(
+    (term, index) => `(${quotedTerms[index]} <-> ${term})`
   );
+  const compoundPhrases = source.compound_lexical_terms.map(quoteTsqueryLexeme);
+  const matchQuery = terms.length === 1
+    ? rankingQuery
+    : [...adjacentPhrases, ...compoundPhrases].join(" | ");
 
-  return result.rows;
+  const client = await pool.connect();
+  let discardClient = false;
+
+  try {
+    await client.query(`
+      begin read only;
+      set local statement_timeout = '${LEXICAL_QUERY_TIMEOUT_MS}ms';
+    `);
+    const result = await client.query<CandidateRow>(
+      `
+        select
+          items.id,
+          items.feed_id,
+          feeds.title as feed_title,
+          items.title,
+          items.url,
+          items.author,
+          items.summary_text,
+          items.content_html,
+          items.published_at,
+          items.raw_extension_data,
+          items.is_read,
+          items.is_starred,
+          items.created_at,
+          ts_rank_cd(
+            features.search_document,
+            to_tsquery('simple', $1),
+            32
+          ) as lexical_rank
+        from item_similarity_features as features
+        join items on items.id = features.item_id
+        join feeds on feeds.id = items.feed_id
+        where features.status = 'ready'
+          and features.algorithm_version = $2
+          and features.item_id <> $3
+          and features.search_document @@ to_tsquery('simple', $4)
+        order by lexical_rank desc, items.published_at desc nulls last, items.id desc
+        limit $5
+      `,
+      [
+        rankingQuery,
+        SIMILARITY_ALGORITHM_VERSION,
+        source.item_id,
+        matchQuery,
+        LEXICAL_CANDIDATE_LIMIT
+      ]
+    );
+    await client.query("commit");
+    return result.rows;
+  } catch (error) {
+    try {
+      await client.query("rollback");
+    } catch {
+      discardClient = true;
+    }
+
+    if (!(error instanceof Error && "code" in error)) {
+      throw error;
+    }
+
+    if (error.code === "57014") {
+      console.warn("Similar articles lexical query canceled", {
+        itemId: source.item_id,
+        timeoutMs: LEXICAL_QUERY_TIMEOUT_MS
+      });
+      return [];
+    }
+
+    if (error.code !== "53100" || !("routine" in error) || error.routine !== "dsm_impl_posix") {
+      throw error;
+    }
+
+    console.warn("Similar articles lexical query ran out of shared memory", {
+      itemId: source.item_id,
+      message: error.message
+    });
+    return [];
+  } finally {
+    client.release(discardClient);
+  }
 }
 
 function rankCandidates(
