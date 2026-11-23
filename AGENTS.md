@@ -38,6 +38,7 @@ If the project direction changes, this file must be updated to reflect the new a
 - The top bar should include a dedicated `feeds` route for feed creation and management.
 - Do not show a session status block or session-loaded message in the application chrome.
 - Collapsed story rows show feed name and story title.
+- Story rows omit item IDs so titles have more room.
 - Expanded story view shows as much extracted feed data as available.
 - Expanded view should include full title, human-readable publication date when available, author when available, and actions for read/unread and star.
 - YouTube preview containers should use the full available width within the expanded story.
@@ -237,6 +238,12 @@ If the project direction changes, this file must be updated to reflect the new a
   - `/feeds` owns feed creation, feed health, pause/retry controls, and feed editing.
   - `/admin` owns folder management, OPML import/export, and recent fetch history.
 - The feeds page should list each feed's story count and read percentage.
+- List feeds by creation time, newest first, and place newly added feeds at the top immediately.
+- Feed rows wrap to the available width, with title and status above folder and reading stats; actions stay visible and may share the stats line when space allows.
+- Show failure details on failing feed rows and keep the feed URL in the inline editor, with the URL as the title fallback for untitled feeds.
+- The inline feed editor must fit the screen width.
+- Each feed row includes a `stories` action that opens unread stories for that feed; folder names link to unread stories for that folder.
+- Reader URLs support `feedId` and `folderId` filters, with the filter controls following the URL.
 - Feed editing should expand directly below the selected feed row rather than appearing above the list.
 
 ## Similar Articles (Implemented Baseline)

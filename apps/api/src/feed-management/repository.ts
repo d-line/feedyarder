@@ -252,7 +252,7 @@ export async function listFeeds(
         ${statisticsColumns}
       from feeds
       ${statisticsJoin}
-      order by feeds.created_at asc, feeds.id asc
+      order by feeds.created_at desc, feeds.id desc
     `
   );
 

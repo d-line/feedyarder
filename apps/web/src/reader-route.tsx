@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { type Feed, type Folder, type Item } from "@feedyarder/contracts";
 import moment from "moment";
 import {
@@ -11,6 +12,9 @@ import {
 import { StoryExpandedCard } from "./story-expanded-card.js";
 
 export function ReaderRoute() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const feedId = searchParams.get("feedId") ?? "";
+  const folderId = searchParams.get("folderId") ?? "";
   const [folders, setFolders] = useState<Folder[]>([]);
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -22,8 +26,6 @@ export function ReaderRoute() {
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [filters, setFilters] = useState({
-    feedId: "",
-    folderId: "",
     q: "",
     readMode: "unread" as "all" | "unread",
     starredOnly: false,
@@ -35,8 +37,8 @@ export function ReaderRoute() {
   useEffect(() => {
     void loadReaderState(true);
   }, [
-    filters.feedId,
-    filters.folderId,
+    feedId,
+    folderId,
     filters.q,
     filters.readMode,
     filters.starredOnly,
@@ -241,11 +243,23 @@ export function ReaderRoute() {
     return listItems({
       cursor,
       limit: 100,
-      ...(filters.feedId ? { feedId: filters.feedId } : {}),
-      ...(filters.folderId ? { folderId: filters.folderId } : {}),
+      ...(feedId ? { feedId } : {}),
+      ...(folderId ? { folderId } : {}),
       ...(filters.q ? { q: filters.q } : {}),
       ...(filters.readMode === "unread" ? { read: false } : {}),
       ...(filters.starredOnly ? { starred: true } : {}),
+    });
+  }
+
+  function updateScopeFilter(key: "feedId" | "folderId", value: string): void {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (value) {
+        next.set(key, value);
+      } else {
+        next.delete(key);
+      }
+      return next;
     });
   }
 
@@ -423,13 +437,8 @@ export function ReaderRoute() {
           <label className="toolbar-filter">
             <span className="toolbar-label">folder</span>
             <select
-              onChange={(event) =>
-                setFilters((current) => ({
-                  ...current,
-                  folderId: event.target.value,
-                }))
-              }
-              value={filters.folderId}
+              onChange={(event) => updateScopeFilter("folderId", event.target.value)}
+              value={folderId}
             >
               <option value="">all</option>
               {folders.map((folder) => (
@@ -443,13 +452,8 @@ export function ReaderRoute() {
           <label className="toolbar-filter">
             <span className="toolbar-label">feed</span>
             <select
-              onChange={(event) =>
-                setFilters((current) => ({
-                  ...current,
-                  feedId: event.target.value,
-                }))
-              }
-              value={filters.feedId}
+              onChange={(event) => updateScopeFilter("feedId", event.target.value)}
+              value={feedId}
             >
               <option value="">all</option>
               {feeds.map((feed) => (
@@ -516,7 +520,6 @@ export function ReaderRoute() {
                 <span className="story-active-marker">
                   {isActive ? ">" : " "}
                 </span>
-                <span className="story-id">{item.id.slice(0, 8)}</span>
                 <span className="story-feed">
                   {item.feedTitle ?? "unknown-feed"}
                 </span>

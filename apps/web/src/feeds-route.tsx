@@ -1,4 +1,5 @@
 import { Fragment, type FormEvent, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   type DiscoveredFeed,
   type Feed,
@@ -116,7 +117,7 @@ export function FeedsRoute() {
         readItemCount: 0
       };
 
-      setFeeds((current) => [...current, createdFeedWithStatistics]);
+      setFeeds((current) => [createdFeedWithStatistics, ...current]);
       openFeedEditor(createdFeedWithStatistics);
       setFeedUrl("");
       setFeedTitle("");
@@ -372,17 +373,7 @@ export function FeedsRoute() {
 
       {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
 
-      <section className="table-shell feed-list-table" aria-label="Feeds">
-        <div className="table-head">
-          <span>feed</span>
-          <span>folder</span>
-          <span>stories</span>
-          <span>read</span>
-          <span>status</span>
-          <span>errors</span>
-          <span>actions</span>
-        </div>
-
+      <section className="table-shell feed-list" aria-label="Feeds">
         {isLoading ? (
           <div className="table-row table-row-empty">
             <span>loading...</span>
@@ -394,35 +385,54 @@ export function FeedsRoute() {
         ) : (
           feeds.map((feed) => (
             <Fragment key={feed.id}>
-              <div className="table-row">
-                <span>
-                  <strong>{feed.title ?? feed.feedUrl}</strong>
-                  <span className="table-subline">{feed.lastErrorMessage ?? feed.feedUrl}</span>
-                </span>
-                <span>{findFolderTitle(folders, feed.folderId)}</span>
-                <span>{feed.itemCount ?? 0}</span>
-                <span>{formatReadPercentage(feed)}</span>
-                <span className={`status-pill status-${getFeedTone(feed)}`}>
-                  {feed.isPaused ? "paused" : feed.status}
-                </span>
-                <span>{feed.consecutiveErrorCount}</span>
-                <span className="table-actions">
-                  <button
-                    onClick={() =>
-                      selectedFeedId === feed.id ? closeFeedEditor() : openFeedEditor(feed)
-                    }
-                    type="button"
-                  >
-                    {selectedFeedId === feed.id ? "close" : "edit"}
-                  </button>
-                  <button onClick={() => void handleToggleFeedPaused(feed)} type="button">
-                    {feed.isPaused ? "resume" : "pause"}
-                  </button>
-                  <button onClick={() => void handleRetryFeed(feed)} type="button">
-                    retry now
-                  </button>
-                </span>
-              </div>
+              <article className="feed-list-row">
+                <div className="feed-list-heading">
+                  <strong className="feed-list-title">{feed.title ?? feed.feedUrl}</strong>
+                  <span className={`status-pill status-${getFeedTone(feed)}`}>
+                    {feed.isPaused ? "paused" : feed.status}
+                  </span>
+                </div>
+                {feed.consecutiveErrorCount > 0 || feed.status === "error" ? (
+                  <p className="feed-list-error">
+                    {feed.lastErrorMessage ? <span>{feed.lastErrorMessage}</span> : null}
+                    <span>
+                      {feed.consecutiveErrorCount} consecutive {feed.consecutiveErrorCount === 1 ? "failure" : "failures"}
+                    </span>
+                  </p>
+                ) : null}
+                <div className="feed-list-details">
+                  <div className="feed-list-statistics">
+                    <span>
+                      folder: {feed.folderId ? (
+                        <Link className="feed-folder-link" to={`/reader?folderId=${encodeURIComponent(feed.folderId)}`}>
+                          {findFolderTitle(folders, feed.folderId)}
+                        </Link>
+                      ) : "none"}
+                    </span>
+                    <span>{feed.itemCount ?? 0} stories</span>
+                    <span>{formatReadPercentage(feed)} read</span>
+                  </div>
+                  <div className="table-actions">
+                    <Link className="button-link" to={`/reader?feedId=${encodeURIComponent(feed.id)}`}>
+                      stories
+                    </Link>
+                    <button
+                      onClick={() =>
+                        selectedFeedId === feed.id ? closeFeedEditor() : openFeedEditor(feed)
+                      }
+                      type="button"
+                    >
+                      {selectedFeedId === feed.id ? "close" : "edit"}
+                    </button>
+                    <button onClick={() => void handleToggleFeedPaused(feed)} type="button">
+                      {feed.isPaused ? "resume" : "pause"}
+                    </button>
+                    <button onClick={() => void handleRetryFeed(feed)} type="button">
+                      retry now
+                    </button>
+                  </div>
+                </div>
+              </article>
 
               {selectedFeedId === feed.id ? (
                 <form

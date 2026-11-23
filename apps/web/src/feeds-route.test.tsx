@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
@@ -9,6 +10,7 @@ const apiMocks = vi.hoisted(() => ({
   discoverFeeds: vi.fn(),
   listFeeds: vi.fn(),
   listFolders: vi.fn(),
+  listItems: vi.fn(),
   retryFeed: vi.fn(),
   updateFeed: vi.fn()
 }));
@@ -20,6 +22,7 @@ vi.mock("./api-client.js", () => ({
 }));
 
 import { FeedsRoute } from "./feeds-route.js";
+import { ReaderRoute } from "./reader-route.js";
 
 describe("FeedsRoute", () => {
   let container: HTMLDivElement;
@@ -30,6 +33,7 @@ describe("FeedsRoute", () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
+    apiMocks.listItems.mockResolvedValue({ items: [], nextCursor: null });
 
     apiMocks.listFolders.mockResolvedValue([
       {
@@ -73,16 +77,16 @@ describe("FeedsRoute", () => {
 
   it("shows feed statistics and opens the editor directly below its row", async () => {
     await act(async () => {
-      root.render(<FeedsRoute />);
+      root.render(<MemoryRouter><FeedsRoute /></MemoryRouter>);
       await Promise.resolve();
     });
 
-    const feedRow = container.querySelector(".feed-list-table .table-row");
+    const feedRow = container.querySelector(".feed-list-row");
 
     expect(apiMocks.listFeeds).toHaveBeenCalledWith({ includeStatistics: true });
     expect(feedRow?.textContent).toContain("Example feed");
-    expect(feedRow?.textContent).toContain("8");
-    expect(feedRow?.textContent).toContain("75%");
+    expect(feedRow?.textContent).toContain("8 stories");
+    expect(feedRow?.textContent).toContain("75% read");
 
     const editButton = Array.from(feedRow?.querySelectorAll("button") ?? []).find(
       (button) => button.textContent === "edit"
@@ -98,5 +102,47 @@ describe("FeedsRoute", () => {
       (feedRow?.nextElementSibling?.querySelector('input[type="url"]') as HTMLInputElement)
         .value
     ).toBe("https://example.com/feed.xml");
+  });
+
+  it.each([
+    { label: "stories", key: "feedId", id: "00000000-0000-0000-0000-000000000101", selectIndex: 1 },
+    { label: "news", key: "folderId", id: "00000000-0000-0000-0000-000000000201", selectIndex: 0 }
+  ])("opens unread stories through the $label link", async ({ label, key, id, selectIndex }) => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/feeds"]}>
+          <Routes>
+            <Route path="/feeds" element={<FeedsRoute />} />
+            <Route path="/reader" element={<ReaderRoute />} />
+          </Routes>
+        </MemoryRouter>
+      );
+    });
+
+    const link = Array.from(container.querySelectorAll<HTMLAnchorElement>(".feed-list-row a"))
+      .find((entry) => entry.textContent?.trim() === label);
+    expect(link?.getAttribute("href")).toBe(`/reader?${key}=${id}`);
+
+    await act(async () => {
+      link?.click();
+    });
+
+    expect(apiMocks.listItems).toHaveBeenLastCalledWith({
+      cursor: null,
+      limit: 100,
+      read: false,
+      [key]: id
+    });
+    const select = container.querySelectorAll<HTMLSelectElement>(".toolbar-filter select")[selectIndex];
+    expect(select?.value).toBe(id);
+
+    await act(async () => {
+      if (select) {
+        select.value = "";
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+
+    expect(apiMocks.listItems).toHaveBeenLastCalledWith({ cursor: null, limit: 100, read: false });
   });
 });
