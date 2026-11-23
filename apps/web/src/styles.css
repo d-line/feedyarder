@@ -394,7 +394,8 @@ button:disabled {
 
 .story-media-video {
   width: 100%;
-  max-width: none;
+  /* Include the container borders so the video stays within the height cap. */
+  max-width: calc(60dvh * 16 / 9 + 2px);
 }
 
 .story-media-header {

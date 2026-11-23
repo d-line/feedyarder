@@ -24,7 +24,7 @@ describe("StoryMediaPlayer", () => {
     container.remove();
   });
 
-  it("uses the full-width container for YouTube media", async () => {
+  it("uses the video container for YouTube media", async () => {
     await renderPlayer(root, youtubeMedia);
 
     expect(container.querySelector(".story-media")?.classList).toContain(

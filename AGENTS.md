@@ -41,7 +41,7 @@ If the project direction changes, this file must be updated to reflect the new a
 - Story rows omit item IDs so titles have more room.
 - Expanded story view shows as much extracted feed data as available.
 - Expanded view should include full title, human-readable publication date when available, author when available, and actions for read/unread and star.
-- YouTube preview containers should use the full available width within the expanded story.
+- YouTube players preserve a 16:9 aspect ratio and fit the available story width, with video height capped at 60% of the current viewport height. The container narrows with the player when the height cap applies.
 - Only one story may be expanded at a time.
 - Marking a story as read should not remove it from the list; it should visually fade.
 - Expanding a story should scroll it to the top of the viewport.
